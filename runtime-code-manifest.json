@@ -1,0 +1,209 @@
+{
+  "version": "0.12.36",
+  "files": [
+    {
+      "path": "desktop/bounds.cjs",
+      "sha256": "c5431cb2e3991d492520112a68232a9afe570d2726afaab93ec2a42b0188df3b"
+    },
+    {
+      "path": "desktop/bubble-preload.cjs",
+      "sha256": "712906ab6512d00728f5b300313cb0256e5e4cf2f01312fdbeda79cb5c801c18"
+    },
+    {
+      "path": "desktop/bubble-surface.js",
+      "sha256": "ddeb9bffad96065adffc0a3ddcbf8edddb689d571797a278658991b7ddcc88cb"
+    },
+    {
+      "path": "desktop/bubble-window.cjs",
+      "sha256": "dca64909133c4b13d6beb8f799e57d49f4f6f7029f3e8ce33e8e5f6fd210eebb"
+    },
+    {
+      "path": "desktop/bubble.css",
+      "sha256": "e6db9c238bdcf4224d1c4d76a6dd794b8d3281aa5871c83f0a5e4a3550b2a172"
+    },
+    {
+      "path": "desktop/bubble.html",
+      "sha256": "5931ca9f077384fe156e033daa2f9dd188335ee7bc0d3b6fd02a10a124e6ac15"
+    },
+    {
+      "path": "desktop/core-runtime.cjs",
+      "sha256": "276742d59f9e22f2b10f6965ae181f640e548bb45baeb1e4d27b85f4a3db8161"
+    },
+    {
+      "path": "desktop/core-runtime.json",
+      "sha256": "77ce35de971350d91755afbdd19c944b2861309c2b0a85132c5b805cf90e3856"
+    },
+    {
+      "path": "desktop/experiences.cjs",
+      "sha256": "85978458fbf6af5f813959e88c008d535162f91b2f45ff11e5f0195fc6d73d2c"
+    },
+    {
+      "path": "desktop/focus-dsh.ps1",
+      "sha256": "daa67dcc3f92bbd17891c1d26c759974db91b6dba3224ec5276dece8fa5734a0"
+    },
+    {
+      "path": "desktop/lc.ico",
+      "sha256": "7559c636875a62b20d20a20cee45acde71409b36f4bfbee0a90114be23aa3d7e"
+    },
+    {
+      "path": "desktop/library.cjs",
+      "sha256": "0f18ea1cd304d3b9074c6798523fd2085f1afc31190739e7d1c1f11d743cc027"
+    },
+    {
+      "path": "desktop/main.cjs",
+      "sha256": "d04dc84b69448ece65185f022cea6341d75068ee30a4b7e8da8cd707e3c1bd70"
+    },
+    {
+      "path": "desktop/model-transition.cjs",
+      "sha256": "f787b47d84e606d054435c36edb66f30b05596c0264641ccd85c593ffdb94dc1"
+    },
+    {
+      "path": "desktop/package.json",
+      "sha256": "f7a6538a4242f69e18054e856a985781f72591c21be8c147cdfcbc4190d2e64d"
+    },
+    {
+      "path": "desktop/panel.cjs",
+      "sha256": "510c8df226216cb9865664c1c159743ebc1d350ced831ef489dbf86a2dfe3fac"
+    },
+    {
+      "path": "desktop/preload.cjs",
+      "sha256": "ca3f2df950eb6ff4a1edf69b44a8f6e15dd9545bc54d90c8737957a5468deb4e"
+    },
+    {
+      "path": "desktop/release-files.json",
+      "sha256": "8b774db9c7c8d449832e5e2b1f10d7a84291b16f25bf185a7237e1d1fc6a98e5"
+    },
+    {
+      "path": "desktop/renderer-diagnostics.cjs",
+      "sha256": "1704f620c939bf0275be193245b30f1b11399d675c59e4e4536c00b8184e2bd6"
+    },
+    {
+      "path": "desktop/voice-diagnostics.cjs",
+      "sha256": "f7626d53bfab02e9eeb69fec8575cb0d6dd906f31ee4b3c05d471802581efcb1"
+    },
+    {
+      "path": "desktop/voice-key.cjs",
+      "sha256": "8516851b834e8b5e8447f6b6df448565c9058e00890824dbb7d939df0850c32a"
+    },
+    {
+      "path": "desktop/voice-request.cjs",
+      "sha256": "d4f4ccd9426def6a05e5d5be1ed17435f84b63c5bf59dcd0e56c47e7970a1b7c"
+    },
+    {
+      "path": "desktop/voice-secrets.cjs",
+      "sha256": "f1dcca1cec08efb2db25c8091865924591c66679a400b4fdf1b974490a69959c"
+    },
+    {
+      "path": "desktop/voice-settings.cjs",
+      "sha256": "79fc11e0c95fc9d0573ae868d351055a4e01daf4144b9efb7924d5d2e3ee9830"
+    },
+    {
+      "path": "lab/app.js",
+      "sha256": "fdeade40c3cbe95a12e0801f6593143252c8149ebfbbb475ac1be30b11ad62ee"
+    },
+    {
+      "path": "lab/body-zones.js",
+      "sha256": "3dd9d52ca9d5b767a0e38c914f42dbcb0046959815a728f42d808d6fbe56ef85"
+    },
+    {
+      "path": "lab/bubble-layout.js",
+      "sha256": "dfb9e60e9aae9d82f0e52a6dddf12c5d9a8a5a91a8bfa086d491bf1c61694ff5"
+    },
+    {
+      "path": "lab/companion-core.js",
+      "sha256": "f10e21270998bcf7294e9178969475ffbade15c1cfda597e4aad20ac7ea8ca8a"
+    },
+    {
+      "path": "lab/companion.css",
+      "sha256": "66df8548463fba1dd1c8b678d1dcb4e4841ea37044e3e9763f20ee0222fb68db"
+    },
+    {
+      "path": "lab/companion.js",
+      "sha256": "6225cc13ed6fbf3f772edd530efcf6466a7957b0af924c3b080e20a7f0d0583f"
+    },
+    {
+      "path": "lab/companion.py",
+      "sha256": "5fd3d22961391b1bce587113ed0e3f9441c8f46b619ac39229d6221478a0d813"
+    },
+    {
+      "path": "lab/focus_input.py",
+      "sha256": "c4926da43c90160f32a5781d95424c0e2e66cbc9abae093cb68628c35d859162"
+    },
+    {
+      "path": "lab/index.html",
+      "sha256": "3c8ae387a3285bd61a4e9578a6b71ba4d898ddb5c3ff3eab9d3de634b7031b21"
+    },
+    {
+      "path": "lab/logo.svg",
+      "sha256": "c35218d0b0906295bb428d213abb16cba8f5999316547b3c5f730b74d637331e"
+    },
+    {
+      "path": "lab/mouth-profile.js",
+      "sha256": "16801dad1d5cf155665c933ee84b675c03e1fdca31b82438bb006b89636e9b4c"
+    },
+    {
+      "path": "lab/panel-state.js",
+      "sha256": "83b5ef85fb1ef7fbf4db25c5dd4aa6eaac1bcd118c77111398c67a68340d9908"
+    },
+    {
+      "path": "lab/portable.js",
+      "sha256": "dad4733ca7e67c410bb15084fea0d1dacaf06c4881cff7e7d11a902cb54b9744"
+    },
+    {
+      "path": "lab/renderer-health.js",
+      "sha256": "e1be75a981d7e5548dbb5736eb234164e552a15509f2007c1a8f186d371356d6"
+    },
+    {
+      "path": "lab/rules.js",
+      "sha256": "9a617c74f5285829bd7019b8ba6c019f550867cd76fc20980e48a46f1860ae5b"
+    },
+    {
+      "path": "lab/server.py",
+      "sha256": "e240711032b284b5a525953b49d987a20ff982582db646d5ba02e5d60cd7e563"
+    },
+    {
+      "path": "lab/speech-core.js",
+      "sha256": "be6b8506d41b2b364cd8ff137d06a462e353cb9e3a60c8d13a6ed060c513d368"
+    },
+    {
+      "path": "lab/state.js",
+      "sha256": "705bf2a7ab4e4cd1c6d3cf6301b722b028d888c52583775f4f822839bbc0b3e1"
+    },
+    {
+      "path": "lab/studio.js",
+      "sha256": "dd6c8b0e1f1c5b4e9f35e24917fbc3a2113d42a333b23cfe189fa927bd23b5c5"
+    },
+    {
+      "path": "lab/style.css",
+      "sha256": "4cd00fafc2e332b7080a90cd1c05616c5047af55888e6d7883af8bf0adb0c8d5"
+    },
+    {
+      "path": "lab/touch-batch.js",
+      "sha256": "764e1a85a376b16c0701f8537c83799b07659308bcb0ee650f665523e908c42e"
+    },
+    {
+      "path": "lab/tts_api.py",
+      "sha256": "149418a12ab74ff766c2631cb5f51456a143a9d9cf0432c2867f2e8273be0925"
+    },
+    {
+      "path": "lab/vendor/cubism4.js",
+      "sha256": "912a3ef2380e875912beb5303e576ce1984a4c89afeed50ac32907f5deb6e046"
+    },
+    {
+      "path": "lab/vendor/pixi.min.js",
+      "sha256": "403f2f2ee8145fa17f60c5c89403056efe2680e5096ec2762036486914ed19c5"
+    },
+    {
+      "path": "lab/voice-catalog.js",
+      "sha256": "64062ede73cdb1fbd9636fc3c805fed59c28446ba13a56e74cbfc11703020577"
+    },
+    {
+      "path": "lab/zones-core.js",
+      "sha256": "3b53845d7cc34873683a802b483a69995d1abc42e6ee2b4f1b83cf0a1966dfb9"
+    },
+    {
+      "path": "lab/zones-editor.js",
+      "sha256": "28b4d15e34e32b7e0ca15c3d6eb62cce14dcab0575d37755a03b99118a6a60bb"
+    }
+  ]
+}

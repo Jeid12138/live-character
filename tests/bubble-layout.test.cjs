@@ -1,0 +1,6 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const context={window:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../lab/bubble-layout.js'),'utf8'),context);const B=context.window.LiveBubble;
+assert.equal(B.units('你好，世界！'),6);assert.equal(B.units('AI制作 Hello world!'),6);assert.equal(B.seconds('你好'),4);assert.equal(B.seconds('字'.repeat(100),{minimum:4,speed:300,extra:2}),22);assert.equal(B.seconds('字'.repeat(1200),{minimum:4,speed:300,extra:2}),242);assert.equal(B.seconds('字'.repeat(1200),{auto:false,minimum:10}),10);assert(B.seconds('字'.repeat(1200),{speed:150})>B.seconds('字'.repeat(1200),{speed:600}));
+const measure=(text)=>(width,font)=>({width:Math.min(width,text.length*font+30),height:Math.ceil(text.length/Math.max(1,Math.floor((width-30)/font)))*font*1.45+22});
+const short=B.fit({text:'你好',font:15,maxWidth:1200,maxHeight:700,measure:measure('你好')});const long=B.fit({text:'字'.repeat(1200),font:26,maxWidth:1200,maxHeight:700,measure:measure('字'.repeat(1200))});assert(long.width>short.width);assert(long.height>short.height);assert(long.width<=1200&&long.height<=700);assert(long.font<=26&&long.font>=9);
+console.log('PASS bubble reading units, short minimum, uncapped long duration, fixed mode, custom reading speed, adaptive width/height/font');

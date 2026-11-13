@@ -1,0 +1,77 @@
+[
+  {
+    "name": "old alphabet",
+    "input": "brz_fixture_ABC-123",
+    "normalized": "brz_fixture_ABC-123"
+  },
+  {
+    "name": "opaque punctuation",
+    "input": "brz_fixture.v1+segment/pad=",
+    "normalized": "brz_fixture.v1+segment/pad="
+  },
+  {
+    "name": "other visible header characters",
+    "input": "brz_fixture~!$%&()*,;:@[]{}?",
+    "normalized": "brz_fixture~!$%&()*,;:@[]{}?"
+  },
+  {
+    "name": "wrong field",
+    "input": "voc_fixture_123",
+    "normalized": "voc_fixture_123"
+  },
+  {
+    "name": "no suffix",
+    "input": "brz_",
+    "normalized": "brz_"
+  },
+  {
+    "name": "actual bullet in input",
+    "input": "brz_fixture•hidden",
+    "valid": false
+  },
+  {
+    "name": "actual ellipsis in input",
+    "input": "brz_fixture…hidden",
+    "valid": false
+  },
+  {
+    "name": "control in input",
+    "input": "brz_fixture\u0000hidden",
+    "valid": false
+  },
+  {
+    "name": "non ASCII header input",
+    "input": "brz_fixtureé",
+    "valid": false
+  },
+  {
+    "name": "public ID goes to cloud",
+    "input": "key_public_fixture",
+    "normalized": "key_public_fixture"
+  },
+  {
+    "name": "no prefix",
+    "input": "opaque.fixture+value=",
+    "normalized": "opaque.fixture+value="
+  },
+  {
+    "name": "outer whitespace",
+    "input": "  opaque_fixture  ",
+    "normalized": "opaque_fixture"
+  },
+  {
+    "name": "internal whitespace unchanged rejected",
+    "input": "opaque fixture",
+    "valid": false
+  },
+  {
+    "name": "internal invisible unchanged rejected",
+    "input": "opaque​fixture",
+    "valid": false
+  },
+  {
+    "name": "internal newline unchanged rejected",
+    "input": "opaque\nfixture",
+    "valid": false
+  }
+]

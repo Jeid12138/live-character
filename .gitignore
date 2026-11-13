@@ -1,0 +1,13 @@
+# 依赖与运行库（体积过大，仅随 Releases 提供）
+node_modules/
+runtime-payloads/*.zip
+*.tgz
+
+# 本机与系统杂项
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+
+# 依赖安装生成的锁文件（源码仓库按需保留）
+package-lock.json

@@ -1,0 +1,12 @@
+- insert:
+    - id: live-character-preset
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: live-character-companion-v1
+        name: 'Live Character（桌宠专用）'
+        description: 'Live Character 角色会话。插件提交明确标记的互动事件，DSH 可在已有角色资料基础上续聊。'
+        plugins:
+          - id: live-character-actor
+            name: live-character/preset/actor
+    - id: live-character
+      name: live-character

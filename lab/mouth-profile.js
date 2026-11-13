@@ -1,0 +1,24 @@
+/* A separate, model-owned speech rig. Expressive mouth/tongue controls remain in the performance rig. */
+(()=>{
+ const S=LCSpeech,H=window.companionHost,$=id=>document.getElementById(id);let cfg=null;
+ const panel=document.createElement('details');panel.id='mouthProfile';panel.innerHTML='<summary>当前模型 · 独立口型适配</summary><p>按当前皮套保存，不改动角色人格或语音服务。先自动识别，特殊参数可手动绑定；AI 适配是可选的。</p><div class="actions"><button id="detectMouthProfile">重新自动识别</button><button id="adaptMouthProfile">AI 口型适配</button><button id="saveMouthProfile">保存口型配置</button></div><small class="token-note">AI 口型适配调用 AI，会消耗模型 tokens；自动识别和手动编辑不消耗。</small><p id="mouthProfileStatus"></p><div id="mouthProfileRows"></div><button id="addMouthBinding">新增口型绑定</button>';$('voicePanel').append(panel);
+ function signature(){return JSON.stringify([H.catalog?.profile,H.params?.ids,H.params?.minimumValues,H.params?.maximumValues,H.params?.defaultValues]);}
+ function make(rows,source='automatic'){return {version:1,profile:H.catalog.profile,signature:signature(),source,updatedAt:new Date().toISOString(),bindings:S.validateMappings(rows,H.catalog,H.params)};}
+ function validate(value){if(value?.version!==1||value.profile!==H.catalog.profile||value.signature!==signature())throw Error('口型配置属于其他模型或参数范围已变化');return make(value.bindings,value.source||'manual');}
+ function apply(value){const next=validate(value);petStore.setItem('mouth-profile-v1',JSON.stringify(next));cfg=next;render();return next;}
+ function message(s,error=false){$('mouthProfileStatus').textContent=s;$('mouthProfileStatus').dataset.level=error?'error':'normal';}
+ function load(){if(!H.ready)return;try{const saved=JSON.parse(petStore.getItem('mouth-profile-v1')||'null');cfg=saved?validate(saved):make(S.detectMappings(H.catalog,H.params));message(saved?'已载入当前模型的独立口型配置':'已自动识别口型，可预览检查后保存');}catch(e){cfg=make(S.detectMappings(H.catalog,H.params));message(e.message+'；使用自动识别，原文件未覆盖',true);}render();}
+ function render(){const list=$('mouthProfileRows');list.replaceChildren();if(!cfg)return;for(const [index,row] of cfg.bindings.entries()){
+  const box=document.createElement('details'),summary=document.createElement('summary');summary.textContent=row.id+' ← '+row.input;box.append(summary);
+  function select(label,key,values){const field=document.createElement('select');for(const v of values){const o=document.createElement('option');o.value=v;o.textContent=v;field.append(o);}field.value=row[key];field.onchange=()=>{row[key]=field.value;summary.textContent=row.id+' ← '+row.input;};const wrap=document.createElement('label');wrap.append(label,field);box.append(wrap);}
+  select('模型参数','id',H.params.ids.filter(id=>!H.catalog.physicsIO?.Output?.includes(id)));select('音频输入','input',Object.keys(S.source({})));select('映射方式','mode',['linear','centered']);
+  for(const [label,key] of [['输入下限','inputMin'],['输入上限','inputMax'],['输出下限','outputMin'],['输出上限','outputMax'],['中立值（centered）','neutral']]){const wrap=document.createElement('label'),field=document.createElement('input');field.type='number';field.step='any';field.value=row[key];field.oninput=()=>{row[key]=field.value===''?NaN:Number(field.value);};wrap.append(label,field);box.append(wrap);}
+  const enabled=document.createElement('input');enabled.type='checkbox';enabled.checked=row.enabled;enabled.onchange=()=>row.enabled=enabled.checked;const label=document.createElement('label');label.append(enabled,'启用此绑定');box.append(label);
+  const remove=document.createElement('button');remove.textContent='删除绑定';remove.onclick=()=>{cfg.bindings.splice(index,1);render();};box.append(remove);list.append(box);
+ }}
+ $('detectMouthProfile').onclick=()=>{if(H.ready){cfg=make(S.detectMappings(H.catalog,H.params));render();message('已重新识别，请检查并保存');}};
+ $('addMouthBinding').onclick=()=>{if(!H.ready)return;cfg||=make([]);const used=new Set(cfg.bindings.map(r=>r.id)),id=H.params.ids.find(id=>!used.has(id)&&!H.catalog.physicsIO?.Output?.includes(id));if(!id)return message('没有可添加的参数',true);const i=H.params.ids.indexOf(id);cfg.bindings.push({id,input:'MouthOpen',mode:'linear',enabled:true,inputMin:0,inputMax:1,outputMin:H.params.defaultValues[i],outputMax:H.params.maximumValues[i],neutral:H.params.defaultValues[i]});render();};
+ $('saveMouthProfile').onclick=()=>{try{if(!cfg)throw Error('请先加载模型');apply({...cfg,source:'manual'});message('已保存当前模型的独立口型配置');}catch(e){message(e.message,true);}};
+ window.mouthProfile={capture(){if(!cfg&&H.ready)load();return cfg?structuredClone(cfg):undefined;},validate,apply,applyAI(rows){return apply(make(rows,'ai'));},targets(weights){if(!H.ready)return {};if(!cfg)load();try{return S.mappedTargets(weights,H.catalog,H.params,S.validateMappings(cfg.bindings,H.catalog,H.params));}catch{return S.targets(weights,H.catalog,H.params);}}};
+ window.addEventListener('pet-ready',load);if(H.ready)load();
+})();

@@ -1,0 +1,2 @@
+import {configuration,runtimeContext} from '../../session-event.js';
+export function mockCharacterPresets(){const records=[],values=new Map();return {records,values,publish:async payload=>{const cfg={...configuration(payload),presetId:'fixture-character-preset',characterId:payload.context.characterId};records.push(cfg);values.set(payload.route?.id,cfg);return cfg;},beginRuntime(payload){this.lastRuntime=runtimeContext(payload);return null;},endRuntime(){},assertSession(){},bindSession(){},async restore(){},async remove(){},dispose(){}};}

@@ -1,0 +1,16 @@
+const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path');const context={module:{exports:{}}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../lab/speech-core.js'),'utf8'),context);const S=context.module.exports;
+function wav(seconds=1){const rate=16000,n=rate*seconds,b=Buffer.alloc(44+n*2);b.write('RIFF');b.writeUInt32LE(b.length-8,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(rate,24);b.writeUInt32LE(rate*2,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);for(let i=0;i<n;i++)b.writeInt16LE(Math.round(2400*(Math.sin(i/rate*2*Math.PI*350)+Math.sin(i/rate*2*Math.PI*950))),44+i*2);return b;}
+test('actual PCM and spectral energy drive silence and changing approximate vowel weights',()=>{
+ const bytes=wav(),audio=S.pcm(bytes);assert.equal(S.duration(bytes),1);assert.equal(audio.sampleRate,16000);assert.equal(audio.data.length,16000);assert.equal(S.pcm(Buffer.from('not audio')),null);
+ const a=S.sampleAudio(audio,.5);assert(a.open>0);assert(a.O+a.U>a.I);assert(a.silence<1);const silent=S.sampleAudio({data:new Float32Array(16000),sampleRate:16000},.5);assert.equal(silent.open,0);assert.equal(silent.silence,1);
+ const front=new Float32Array(16000);for(let i=0;i<front.length;i++)front[i]=.08*(Math.sin(i/16000*2*Math.PI*300)+Math.sin(i/16000*2*Math.PI*2500));assert(S.sampleAudio({data:front,sampleRate:16000},.5).I>a.I);
+});
+test('all available mouth families are retargeted within real bounds, authored mappings win and physics outputs stay untouched',()=>{
+ const params={ids:['ParamA','ParamI','ParamU','ParamE','ParamO','ParamMouthOpenY','ParamMouthForm','MouthFunnel','ParamJawOpen','Mouthpucker','customJaw','physicsMouth'],minimumValues:[0,0,0,0,0,0,-1,0,0,0,10,0],maximumValues:[1,1,1,1,1,1,1,1,2,1,50,1],defaultValues:[0,0,0,0,0,0,0,0,0,0,10,0]};
+ const catalog={physicsIO:{Output:['physicsMouth']},parameterGroups:[{Name:'LipSync',Ids:['ParamMouthOpenY','physicsMouth']}],vts:{tracking:[{Input:'JawOpen',OutputLive2D:'customJaw',InputRangeLower:0,InputRangeUpper:1,OutputRangeLower:50,OutputRangeUpper:10}]}};
+ const values=S.targets({A:.2,I:.1,U:.2,E:.1,O:.2,silence:.2,open:.8},catalog,params);assert(Math.abs(values.customJaw-18)<1e-8);assert.equal(values.ParamJawOpen,1.6);assert(values.Mouthpucker>0);assert(values.MouthFunnel>0);assert(values.ParamA>0);assert(values.ParamMouthOpenY>0);assert(!('physicsMouth'in values));for(const [id,v] of Object.entries(values)){const i=params.ids.indexOf(id);assert(v>=params.minimumValues[i]&&v<=params.maximumValues[i]);}
+});
+test('free-form performance direction preserves arbitrary emotions without adding spoken instructions',()=>{
+ const text=S.instruction({direction:'忍着笑，先放轻声音，再强调“今天”。',emotion:'复杂且变化的情绪',baseline:'保持慢一点的语速'});assert(text.includes('忍着笑'));assert(text.includes('慢一点'));assert(!text.includes('复杂且变化'));
+ const fallback=S.instruction({emotion:'嘴硬但惦记',persona:'性格卡',event:'touch'});assert(fallback.includes('嘴硬但惦记'));assert(fallback.includes('性格卡'));assert(S.instruction({direction:'字'.repeat(1500)}).length<=1000);
+});

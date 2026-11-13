@@ -1,0 +1,27 @@
+{
+  "id": "cubism-core",
+  "label": "Cubism Core",
+  "version": "06.00.0001",
+  "directory": "core",
+  "executable": "live2dcubismcore.min.js",
+  "kind": "cubism-core",
+  "archivePrefix": "Core",
+  "sha256": "d065746c80f8606b20985b74517770471e9a3fa4c91e3584268e2f5072f0e801",
+  "required": [
+    "live2dcubismcore.min.js"
+  ],
+  "files": [
+    {
+      "path": "live2dcubismcore.min.js",
+      "sha256": "8741f739779b5d5210872bd3d7d99f0f1e56e6c87409e7d26d6bb4b80aa1ef47"
+    }
+  ],
+  "licenseUrl": "https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html",
+  "licensePage": "https://www.live2d.com/en/sdk/download/web/",
+  "licenseRevision": "2026-04-02-web-r5",
+  "sourceUrls": [
+    "https://cubism.live2d.com/sdk-web/bin/CubismSdkForWeb-5-r.5.zip"
+  ],
+  "sourceArchiveSha256": "67064a7fb1812cf502f5c4a03bfe12cc638c75a621bb4acf06bb28763df06ba0",
+  "bundledArchive": "runtime-payloads/cubism-core-06.00.0001.zip"
+}
