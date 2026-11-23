@@ -26,6 +26,17 @@ saved=0;result=await decide(mock(false),{},payload,signal,sessions,attachments);
 result=await decide(mock(true),{},payload,signal,sessions,undefined);assert.equal(calls.length,0);assert.equal(result.appearanceSource,'metadata');
 await assert.rejects(decide(mock(true),{},payload,signal,{chat(){throw Object.assign(Error('image block rejected'),{submitted:true});}},attachments),/image block rejected/);assert.equal(calls.length,0,'no second direct generation after session failure');
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'lc-appearance-'));
+const observe={...payload,event:{type:'observe',automatic:true}};
+await decide(mock(true),{},observe,signal,sessions,attachments);
+assert.equal(sessionCalls.at(-1).images.length,1);
+assert.equal(sessionCalls.at(-1).p.screenAttached,true);
+assert.equal(sessionCalls.at(-1).p.visuals,undefined,'raw screenshot data must stay out of session context');
+await decide(mock(false),{},observe,signal,sessions,attachments);
+assert.equal(sessionCalls.at(-1).images.length,0);
+assert.equal(sessionCalls.at(-1).p.screenAttached,false);
+for(const event of [{type:'observe'},{type:'chat'},{type:'touch'}]){
+ await assert.rejects(decide(mock(true),{},{...observe,event},signal,sessions,attachments),/图像请求无效/);
+}
 try{
  const write=(rel,data)=>{const dest=path.join(root,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.writeFileSync(dest,JSON.stringify(data))};
  write('assets.json',{characters:[{id:char},{id:other}],active:{characterId:other}});

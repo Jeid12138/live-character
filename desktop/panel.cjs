@@ -1,4 +1,5 @@
 const http=require('node:http');
+const {setTimeout:pause}=require('node:timers/promises');
 module.exports=async function startPanel(win,activeSession,diagnostics){
  const secret=process.env.PET_SECRET;
  const url=new URL('/desktop-online',process.env.PET_BRIDGE);
@@ -111,7 +112,34 @@ module.exports=async function startPanel(win,activeSession,diagnostics){
    await execute('window.petPanel.act('+JSON.stringify(cmd)+')',true);send(200,{});
   }catch(e){send(400,{error:String(e.message).slice(0,500),code:e.code||'DESKTOP_OPERATION_FAILED'});}
  });
- await new Promise((ok,bad)=>{server.once('error',bad);server.listen(0,'127.0.0.1',ok);});
- win.once('closed',()=>{clearInterval(reaper);for(const c of [...clients])closeStream(c);tickets.clear();leaseStates.clear();server.close();});
- const r=await fetch(url,{method:'POST',headers:{authorization:'Bearer '+secret},body:String(server.address().port)});if(!r.ok)throw Error('桌宠侧栏连接失败');
+ const lifetime=new AbortController();
+ const close=()=>{
+  lifetime.abort();clearInterval(reaper);
+  for(const c of [...clients])closeStream(c);
+  tickets.clear();leaseStates.clear();server.close();
+ };
+ win.once('closed',close);
+ try{
+  await new Promise((ok,bad)=>{server.once('error',bad);server.listen(0,'127.0.0.1',ok);});
+  if(lifetime.signal.aborted)return close();
+  const body=String(server.address().port);
+  const retryDelays=[0,150,400,900,1800];
+  let failure;
+  for(const delay of retryDelays){
+   if(delay)await pause(delay,null,{signal:lifetime.signal});
+   let response;
+   try{
+    response=await fetch(url,{method:'POST',headers:{authorization:'Bearer '+secret},body,
+     signal:AbortSignal.any([lifetime.signal,AbortSignal.timeout(2000)])});
+   }catch(error){failure=error;continue;}
+   await response.body?.cancel().catch(()=>{});
+   if(response.ok)return;
+   failure=Error('HTTP '+response.status);
+   if(response.status<500)break;
+  }
+  throw Error('桌宠侧栏连接失败 · '+failure?.message,{cause:failure});
+ }catch(error){
+  const closed=lifetime.signal.aborted;close();
+  if(!closed)throw error;
+ }
 };

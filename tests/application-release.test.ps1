@@ -14,13 +14,17 @@ $root=Join-Path ([IO.Path]::GetTempPath()) ('lc-release-test-'+[Guid]::NewGuid()
 try{
  [void][IO.Directory]::CreateDirectory($data)
  foreach($rel in @('desktop/main.cjs','lab/index.html','lab/vendor/cubism4.js')){$file=Join-Path $source $rel;[void][IO.Directory]::CreateDirectory((Split-Path $file -Parent));[IO.File]::WriteAllText($file,$rel)}
- $manifest=[pscustomobject]@{version='test';files=@(Get-ChildItem $source -Recurse -File|ForEach-Object {@{path=$_.FullName.Substring($source.Length+1);sha256=(Get-FileHash $_.FullName).Hash}})}
+ $manifest=[pscustomobject]@{version='9.8.7';files=@(Get-ChildItem $source -Recurse -File|ForEach-Object {@{path=$_.FullName.Substring($source.Length+1).Replace([IO.Path]::DirectorySeparatorChar,'/');sha256=(Get-FileHash $_.FullName).Hash}})}
  $result=Ensure-ApplicationRelease $data $source $manifest;Check (!$result.repaired) 'Fresh preparation incorrectly marked as repair';Assert-ApplicationFiles $result.path $manifest
  $reuse=Ensure-ApplicationRelease $data $source $manifest;Check (!$reuse.repaired) 'Valid release was recopied'
  [IO.File]::WriteAllText((Join-Path $result.path 'lab/vendor/cubism4.js'),'corrupt')
  [IO.File]::WriteAllText((Join-Path $result.path 'custom-note.txt'),'preserve me')
  $fixed=Ensure-ApplicationRelease $data $source $manifest;Check $fixed.repaired 'Corrupt release was not repaired';Assert-ApplicationFiles $fixed.path $manifest
- Check (@(Get-ChildItem $data -Directory -Filter '*.repair-*').Count -eq 1) 'Custom backup was lost'
+ $backups=@(Get-ChildItem $data -Directory -Filter '*.repair-*')
+ Check ($backups.Count -eq 1) 'Custom backup was lost'
+ Check (Test-Path -LiteralPath (Join-Path $backups[0].FullName 'lab/vendor/cubism4.js')) 'Modified application file was lost'
+ Check (Test-Path -LiteralPath (Join-Path $backups[0].FullName 'custom-note.txt')) 'Custom file was lost'
+ Check (!(Test-Path -LiteralPath (Join-Path $backups[0].FullName 'desktop/main.cjs'))) 'Verified application file was left in backup'
  [IO.File]::WriteAllText((Join-Path $source 'lab/index.html'),'source corrupt')
  $denied=$false;try{Ensure-ApplicationRelease $data $source $manifest}catch{$denied=$true};Check $denied 'Corrupt bundled code was trusted'
  Assert-ApplicationFiles $fixed.path $manifest

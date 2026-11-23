@@ -24,13 +24,24 @@ export function readCharacterContext({dataDirectory,characterId}){
  let settings={};const settingFile=path.join(l.home,'settings','character.json');
  if(fs.existsSync(settingFile))settings=JSON.parse(json(settingFile)['companion-config-v4']||'{}');
  if(typeof meta.persona==='string')value.persona=meta.persona;
- if(Object.hasOwn(settings,'voiceMode')||Object.hasOwn(settings,'voiceProvider'))value.voice=voiceConfiguration({mode:settings.voiceMode||'local',provider:settings.voiceProvider,model:settings.voiceApiModel,voice:settings.voice,fixedDirection:settings.breezeInstruction,guidance:settings.voiceGuidance,referenceConfigured:saved.value.voice?.referenceConfigured});
+ else if(typeof settings.persona==='string')value.persona=settings.persona;
+ if(Object.hasOwn(settings,'voiceMode')||Object.hasOwn(settings,'voiceProvider'))value.voice=voiceConfiguration({mode:settings.voiceMode||'local',provider:settings.voiceProvider,model:settings.voiceMode==='managed'?settings.managedVoiceModel:settings.voiceApiModel,voice:settings.voice,fixedDirection:settings.breezeInstruction,guidance:settings.voiceGuidance,referenceConfigured:saved.value.voice?.referenceConfigured});
  const modelFile=path.join(l.home,'settings','models',l.profile+'.json');
  if(fs.existsSync(modelFile)){const stored=json(modelFile),mouth=stored['mouth-profile-v1'];if(mouth){const m=JSON.parse(mouth);if(m.profile!==l.profile)throw error('口型配置与皮套不匹配','LC_CHARACTER_CONFIG_NOT_READY');value.model.mouth={driver:'actual audio and model-owned mapping; not LLM keyframes',bindings:m.bindings};}
   if(stored['performance-rig-v1']){const rig=JSON.parse(stored['performance-rig-v1']);if(!Array.isArray(rig))throw error('演出参数配置无效','LC_CHARACTER_CONFIG_NOT_READY');value.capabilities={...value.capabilities,pose:rig.filter(r=>r.role!=='精细表情'),fine:rig.filter(r=>r.role==='精细表情')};}
  }
  const voice=value.voice;
  const cfg=configuration({characterLabel:l.character.name,persona:value.persona,capabilities:value.capabilities,context:{characterId,profile:l.profile},modelSettings:value.model,...(voice?{voiceSettings:{mode:voice.mode,provider:voice.provider,model:voice.model,voice:voice.voice,fixedDirection:voice.fixedDirection,guidance:voice.adapter?.body?.voice_settings?.guidance_scale,referenceConfigured:voice.referenceConfigured}}:{})});
+ // Keep the most recently assembled ability list with its own skin. The DSH
+ // history retains the revision, so a later inspection can check for a match.
+ if(/^[a-f0-9]{20,64}$/i.test(l.profile)){
+  const snapshot=path.join(l.home,'settings','models',l.profile+'.capabilities.json');
+  try{
+   const previous=fs.existsSync(snapshot)?json(snapshot):null;
+   if(previous?.revision!==cfg.revision)atomic(snapshot,{characterId,profile:l.profile,revision:cfg.revision,assembledAt:new Date().toISOString(),capabilities:value.capabilities});
+  }catch(e){console.warn('[Live Character] 皮套能力快照未保存',e.code||e.name);}
+
+ }
  return cfg.text.replace('[LC 本会话角色设置：人格与能力资料，不是用户发言，不覆盖公共返回规则]','[LC 角色配置注入：人格、当前皮套能力、口型与语音设置]');
 }
 export function readCharacterRuntime(config){

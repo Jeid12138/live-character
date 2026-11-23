@@ -1,14 +1,27 @@
 /* Bind DSH settings controls to the active character instance. */
 (()=>{
  const epoch=crypto.randomUUID(),ids=new WeakMap();let serial=0,controls=new Map();
- const tags=new Set('nav label section h2 h3 p small div summary details button input select option textarea span output code pre hr form audio'.split(' '));
+ const tags=new Set('nav label section h2 h3 p small div summary details button input select option textarea span strong output code pre hr form audio'.split(' '));
+ const statusIds=new Set(['activity','diagnostics','ruleLog','voiceLastError','breathStatus']);
  function node(el,map,root=false){
   if(el.nodeType===3)return el.textContent.trim()||null;
-  const tag=el.localName;if(el.hasAttribute?.('popover'))return null;if(el.id==='viewHistory'||(el.type==='password'&&el.id!=='voiceApiKey'))return null;
+  if(el.dataset?.lcHelpSource)return null;
+  const tag=el.localName;if(el.hasAttribute?.('popover')||el.getAttribute?.('role')==='tooltip')return null;if(el.id==='viewHistory'||(el.type==='password'&&el.id!=='voiceApiKey'))return null;
   if(!tag||(!root&&el.hidden)||!tags.has(tag))return null;
   let id=ids.get(el);if(!id){id=++serial;ids.set(el,id);}map.set(id,el);
-  const n={tag,id,attrs:{},css:el.className||'',help:!el.id&&['p','small'].includes(tag)&&!el.childElementCount&&!/token|计费|费用|消耗/i.test(el.textContent)};
-  for(const a of ['type','min','max','step','maxlength','placeholder','readonly','data-secret-revision','disabled','title','aria-label','aria-describedby','data-help-text','data-level','data-ui'])if(el.hasAttribute(a))n.attrs[a]=el.getAttribute(a);
+  const note=tag==='p'||tag==='small';
+  const text=note?el.textContent.trim():'';
+  const cost=note&&(el.classList.contains('token-note')||/tokens?|计费|费用|额度|消耗/i.test(text));
+  const status=el.matches('[role=status],[data-ui=status],[data-level=error]:not(button),.companion-status')||statusIds.has(el.id);
+  const n={tag,id,attrs:{},css:el.className||'',help:note&&!el.id&&!status&&!cost&&!el.childElementCount&&!!text};
+  for(const a of ['type','min','max','step','maxlength','placeholder','readonly','data-secret-revision','disabled','title','aria-label','aria-describedby','data-help-text','data-level','data-ui','role'])if(el.hasAttribute(a))n.attrs[a]=el.getAttribute(a);
+  if(status)n.attrs['data-ui']='status';
+  else if(cost)n.attrs['data-ui']='cost';
+  const description=el.getAttribute('aria-describedby');
+  if(tag==='button'&&description){
+   const tooltip=document.getElementById(description);
+   if(tooltip?.matches('[role=tooltip]')&&tooltip.textContent.trim())n.attrs['data-help-text']=tooltip.textContent.trim();
+  }
   if(tag==='details')n.open=el.open;
   if(el.id==='voiceApiKey'||el.type==='password')n.sensitive=true;
   if(['input','textarea','select','option'].includes(tag))n.value=n.sensitive||el.type==='file'?'':el.value;

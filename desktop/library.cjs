@@ -5,7 +5,7 @@ function json(p){return fs.existsSync(p)?JSON.parse(fs.readFileSync(p,'utf8')):{
 function atomic(p,text){mkdir(path.dirname(p));const tmp=p+'.'+randomUUID();try{fs.writeFileSync(tmp,text);fs.renameSync(tmp,p);}finally{fs.rmSync(tmp,{force:true});}}
 function slug(s){return String(s||'模型').normalize('NFC').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[. ]+$/,'').slice(0,70)||'模型';}
 function contains(root,file){const rel=path.relative(root,file);return rel===''||!path.isAbsolute(rel)&&rel!=='..'&&!rel.startsWith('..'+path.sep);}
-const defaultPersona='你是陪伴用户进行 AI 制作和写作的桌面伙伴。性格温柔、好奇，有自己的情绪表达。';
+const defaultPersona='';
 const modelKey=k=>/^(mouth-profile|performance-rig|companion-zones|adaptation-report|ai-parameter|tracking-map|breathing|pet-model-sidebar|model-appearance)/.test(k);
 const modelScene=new Set(['pins','view','placement']);
 const modelStage=new Set(['idle','physics','amp','cap','quality','colors','showZones']);
@@ -50,7 +50,7 @@ module.exports=function library(data,assets,persist){
  }
  let setupNotice='';
  function setup(){
-  for(const name of ['voice-models','_characters'])mkdir(path.join(root(),name));
+  for(const name of ['voice-models','voice-references','_characters'])mkdir(path.join(root(),name));
   if(!Array.isArray(assets.characters)){
    if(assets.model||assets.history?.length)setupNotice='检测到旧版资产结构，请通过导入重新选择角色归属。旧文件和备份保持原位。';
    commit(()=>{assets.characters=[];assets.active=null;assets.characterSchema=1;});
@@ -67,7 +67,7 @@ module.exports=function library(data,assets,persist){
   if(kind==='root')return root();
   if(kind==='legacy'){const folder=path.join(root(),'_legacy');if(!fs.existsSync(folder))throw Error('没有历史备份目录');return folder;}
   if(kind==='core')return mkdir(path.join(data,'core'));
-  if(['voice-models'].includes(kind))return mkdir(path.join(root(),kind));
+  if(['voice-models','voice-references'].includes(kind))return mkdir(path.join(root(),kind));
   const c=activeCharacter();
   if(kind==='model')return activeModel().path;
   if(kind==='memory')return mkdir(path.join(home(c.id),'memory'));
@@ -109,7 +109,10 @@ module.exports=function library(data,assets,persist){
   }
   const char=readSettings(charFile),model=readSettings(modelFile);
   if(op==='get'){
-   if(k==='companion-config-v4')return JSON.stringify({...JSON.parse(char[k]||'{}'),persona:meta(c).persona??defaultPersona});
+   if(k==='companion-config-v4'){
+    const config=JSON.parse(char[k]||'{}'),saved=meta(c).persona;
+    return JSON.stringify({...config,persona:typeof saved==='string'?saved:typeof config.persona==='string'?config.persona:defaultPersona});
+   }
    if(['pet-scene','pet-stage-settings'].includes(k))return char[k]||model[k]?JSON.stringify({...JSON.parse(char[k]||'{}'),...JSON.parse(model[k]||'{}')}):null;
    return (modelKey(k)?model:char)[k]??null;
   }

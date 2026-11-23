@@ -1,5 +1,7 @@
-import {mkdirSync, writeFileSync, renameSync} from 'node:fs';
+import {readFileSync, mkdirSync, writeFileSync, renameSync} from 'node:fs';
 import path from 'node:path';
+
+export const pluginVersion = JSON.parse(readFileSync(new URL('./package.json',import.meta.url),'utf8')).version;
 
 const operations = new Set(['diagnostics','read','click','value','file','point','chat','stop','navigation','history','launch','launch-cancel','dependencies','stream','stream-close','stream-status','models','modelChoices','links']);
 const localPeers = new Set(['127.0.0.1','::1','::ffff:127.0.0.1']);
@@ -12,7 +14,7 @@ function record(id, reason, error) {
     const dest = path.join(dir, 'panel-last-error.json');
     recentErrors.push({time:new Date().toISOString(),id,reason,code:error?.code,message:String(error?.message||'').slice(0,1500),stack:String(error?.stack||'').slice(0,5000)});
     if(recentErrors.length>40)recentErrors.shift();
-    writeFileSync(dest+'.tmp', JSON.stringify({version:'0.12.36',recentErrors}));
+    writeFileSync(dest+'.tmp', JSON.stringify({version:pluginVersion,recentErrors}));
     renameSync(dest+'.tmp',dest);
   } catch { /* The response still carries the diagnostic. */ }
 }

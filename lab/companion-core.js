@@ -6,14 +6,22 @@
  const poseIds=['ParamAngleX','ParamAngleY','ParamAngleZ','ParamBodyAngleX','ParamBodyAngleY','AngleX','AngleY','AngleZ','LeanInput','ParamEyeBallX','ParamEyeBallY'];
  const vowels=['A','I','U','E','O'];
  // Resolve writable controls from this model. The physics solver owns its destinations.
- function rig(catalog,params,mapping={},annotations={}){
+ const rawStateMeaning=/眼[镜鏡]|体[型形]|身形|大小[变變]|衣服|裙|鞋|配[饰飾]|物品|道具|尾巴|[伞傘]|钢盆|\b(?:glasses|spectacles|monocle|umbrella|parasol|body\s*(?:shape|size|type)|outfit|clothes|costume|skirt|shoes|hat|accessory|accessories|props?|tail)\b/i;
+ function rig(catalog,params,mapping={},annotations={},classes={}){
   const outputs=new Set(catalog.physicsIO?.Output||[]),inputs=new Set(catalog.physicsIO?.Input||[]);
   const names=new Map((catalog.parameters||[]).map(p=>[p.Id,p.Name]));
   const definitions=new Map((catalog.parameters||[]).map(p=>[p.Id,p]));
   const groups=new Map((catalog.groups||[]).map(g=>[g.Id,g]));
   const reserved=new Set((catalog.parameterGroups||[]).filter(g=>/^(LipSync|EyeBlink)$/i.test(g.Name)).flatMap(g=>g.Ids||[]));
   const vts=new Map((catalog.vts?.tracking||[]).map(r=>[r.OutputLive2D,r.Input]));
-  const rows=[];
+  const rows=[],mappedIds=new Set(Object.values(mapping));
+  const expressionIds=new Set((catalog.expressions||[]).flatMap(e=>(e.data?.Parameters||[]).filter(p=>Number.isFinite(p.Value)).map(p=>p.Id)));
+  const motionIds=new Set((catalog.motions||[]).flatMap(m=>(m.data?.Curves||[]).filter(c=>c.Target==='Parameter').map(c=>c.Id)));
+  const referenced=new Set([
+   ...(catalog.expressions||[]).flatMap(e=>(e.data?.Parameters||[]).map(p=>p.Id)),
+   ...(catalog.motions||[]).flatMap(m=>(m.data?.Curves||[]).filter(c=>c.Target==='Parameter').map(c=>c.Id)),
+   ...(catalog.vts?.tracking||[]).map(r=>r.OutputLive2D)
+  ]);
   for(const [i,id] of params.ids.entries()){
    if(outputs.has(id)||params.minimumValues[i]>=params.maximumValues[i])continue;
    const input=vts.get(id)||'',name=names.get(id)||'';
@@ -31,18 +39,41 @@
    if(meaning&&!role)role='精细表情';
    const mapped=Object.keys(mapping).find(axis=>mapping[axis]===id);
    if(mapped){const label={AngleX:'头部姿态',AngleY:'头部姿态',AngleZ:'头部姿态',PositionX:'身体姿态',PositionY:'身体姿态',ParamEyeBallX:'视线横向',ParamEyeBallY:'视线纵向'}[mapped];if(label)role=label;}
-   if(role)rows.push({id,role,name:meaning||name||id,min:params.minimumValues[i],max:params.maximumValues[i],neutral:params.defaultValues[i],physicsInput:inputs.has(id)});
+   // Custom model switches (body size, face shading, costumes, etc.) often
+   // have arbitrary IDs. Keep every writable control discoverable; semantic
+   // Include custom switches backed by metadata or an actual asset binding.
+   if(!role&&!referenced.has(id)&&(!name||name===id))continue;
+   role=role||'模型参数';
+   const evidence=(id+' '+name+' '+group).replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_\d]/g,' ');
+   const isState=classes[id]==='state'&&rawStateMeaning.test(evidence)&&!expressionIds.has(id)&&!motionIds.has(id)&&!mappedIds.has(id)&&!vts.has(id)&&!inputs.has(id)&&!/mouth|lip|jaw|viseme|blink|breath|口型|眨眼|呼吸/i.test(evidence)&&!/姿态|视线/.test(role);
+   rows.push({id,role,name:meaning||name||id,min:params.minimumValues[i],max:params.maximumValues[i],neutral:params.defaultValues[i],physicsInput:inputs.has(id),...(isState?{lifetime:'state'}:classes[id]==='temporary'?{lifetime:'temporary'}:{})});
   }
   return rows;
  }
- function animationInfo(catalog,params){
-  const ids=new Set(params.ids);
-  const motions=catalog.motions.map(m=>({name:m.name,kind:m.behavior.kind,seconds:m.data.Meta?.Duration,loop:m.data.Meta?.Loop,fadeIn:m.behavior.fadeIn??m.data.FadeInTime,fadeOut:m.behavior.fadeOut??m.data.FadeOutTime,hotkeyFade:m.behavior.hotkey?m.behavior.fade:undefined}));
+ function expressionLifetimes(catalog,params){
+  const ids=new Set(params.ids),labels=new Map((catalog.parameters||[]).map(p=>[p.Id,p.Name]));
+  const transient=/黑脸|臉黑|迷[茫惘]|脸红|臉紅|害羞|慌[张張]|流汗|冷汗|泪|淚|涙|白眼|圈圈眼|爱心眼|愛心眼|屑屑眼|哭|微笑|吃惊|驚き|\b(?:blush|shy|confused|confusion|tear|tears|sweat|smile|anger|angry|cry|sad|dizzy|surprised)\b/i;
+  const state=/眼[镜鏡]|めがね|体[型形]|身形|大小[变變]|衣服|服[装裝]|换装|換裝|裙|鞋|帽子|配[饰飾]|物品|道具|尾巴|[伞傘]|钢盆|鋼盆|水杯|茶杯|兔牙|\b(?:glasses|spectacles|monocle|umbrella|parasol|body\s*(?:shape|size|type)|outfit|clothes|costume|skirt|shoes|hat|accessory|accessories|props?|tail)\b/i;
+  const readable=text=>String(text||'').replace(/([a-z])([A-Z])/g,'$1 $2').replaceAll('_',' ');
+  const result=new Map();
+  for(const e of catalog.expressions){
+   const bindings=(e.data?.Parameters||[]).filter(p=>ids.has(p.Id)&&Number.isFinite(p.Value));
+   const descriptors=[e.name,...(e.aliases||[]),...bindings.flatMap(p=>[labels.get(p.Id),p.Id])].map(readable);
+   const autoOff=e.behavior?.autoOff&&Number.isFinite(e.behavior.autoOffSeconds)&&e.behavior.autoOffSeconds>0?e.behavior.autoOffSeconds:undefined;
+   const lifetime=e.behavior?.autoOff||descriptors.some(t=>transient.test(t))?'temporary':descriptors.some(t=>state.test(t))?'state':'unspecified';
+   result.set(e,{bindings,autoOff,lifetime});
+  }
+  return result;
+ }
+ function animationInfo(catalog,params,lifetimes=expressionLifetimes(catalog,params)){
+  const motions=catalog.motions.map(m=>({name:m.name,aliases:m.aliases||[],hotkey:m.behavior.hotkey,kind:m.behavior.kind,seconds:m.data.Meta?.Duration,loop:m.data.Meta?.Loop,fadeIn:m.behavior.fadeIn??m.data.FadeInTime,fadeOut:m.behavior.fadeOut??m.data.FadeOutTime,hotkeyFade:m.behavior.hotkey?m.behavior.fade:undefined}));
   const expressions=catalog.expressions.map(e=>{
-   const bindings=(e.data.Parameters||[]).filter(p=>ids.has(p.Id)&&Number.isFinite(p.Value));
-   return {name:e.name,bound:e.behavior.bound,usable:bindings.length>0,fadeIn:e.behavior.fade,fadeOut:e.data.FadeOutTime,autoOff:e.behavior.autoOff?e.behavior.autoOffSeconds:undefined,bindings:bindings.map(p=>[p.Id,p.Value,p.Blend||'Add'])};
+   const {bindings,autoOff,lifetime}=lifetimes.get(e);
+   return {name:e.name,aliases:e.aliases||[],bound:e.behavior?.bound,usable:bindings.length>0,fadeIn:e.behavior?.fade,fadeOut:e.data.FadeOutTime,autoOff,lifetime,bindings:bindings.map(p=>[p.Id,p.Value,p.Blend||'Add'])};
   });
-  return {motions,expressions};
+  const idleMatches=h=>{const file=String(h.File||'').replace(/\\/g,'/').replace(/^\.\//,'');const matches=catalog.motions.filter(m=>{const path=String(m.path||'').replace(/\\/g,'/');return path===file||(!file.includes('/')&&path.split('/').pop()===file);});return matches.length===1?matches:[];};
+  const controls=(catalog.vts?.hotkeys||[]).flatMap(h=>h.Action==='RemoveAllExpressions'?[{kind:'clearExpressions',name:h.Name||'清除AI表情'}]:h.Action==='ChangeIdleAnimation'?idleMatches(h).map(m=>({kind:'idle',name:m.name,aliases:h.Name?[h.Name]:[]})):[]);
+  return {motions,expressions,controls};
  }
  function limitLists(data,limit){
   const size=v=>new TextEncoder().encode(JSON.stringify(v)).length;
@@ -85,7 +116,8 @@
   if(source.length>12)report('too-many-actions','只接受前 12 个离散动作','actions');
   for(const [index,a] of source.slice(0,12).entries()){
    if(!a||typeof a!=='object'||!['motion','gesture'].includes(a.kind)){report('invalid-action-kind','忽略未知离散动作类型','actions');continue;}
-   let kind=a.kind;const field=explicit?'actions['+index+']':kind==='gesture'?'gestures':'motion',name=a.name;
+   let kind=a.kind;const field=explicit?'actions['+index+']':kind==='gesture'?'gestures':'motion';let name=a.name;
+   if(!motions.has(name)&&!names.has(name)){const matches=[...motions.values()].filter(m=>m.aliases?.includes(name));if(matches.length===1)name=matches[0].name;}
    if(kind==='gesture'&&!names.has(name)&&a.on!==false&&motions.has(name)){kind='motion';report('motion-channel-corrected','已将 '+name+' 从 gestures 改为一次性 motion',field,name);}
    if(typeof name!=='string'||!(kind==='motion'?motions.has(name):names.has(name))){report(kind==='motion'?'unknown-motion':'unknown-gesture','忽略当前模型不支持的'+(kind==='motion'?'一次性动作 ':'手势 ')+String(name),field,String(name));continue;}
    if(a.at!==undefined&&(!Number.isFinite(a.at)||a.at<0||a.at>60)){report('invalid-action-time','忽略起始时间不在 0–60 秒内的动作 '+name,field,name);continue;}
@@ -118,11 +150,27 @@
   const diagnostics=[],report=(code,message,field,id)=>{if(diagnostics.length<64)diagnostics.push({code,message,...(field?{field}:{}),...(id?{id}:{}),profile:catalog.profile});};
   const rows=(catalog.controlRig||rig(catalog,params)).filter(r=>params.ids.includes(r.id)&&!catalog.physicsIO?.Output?.includes(r.id)),byId=new Map(rows.map(r=>[r.id,r])),oldIds=new Set(options.previousParameterIds||[]);
   const out={text:String(p.text||'').slice(0,1200),speech:{instructions:typeof p.speech?.instructions==='string'?p.speech.instructions.trim().slice(0,900):''},emotion:String(p.emotion||'平静').slice(0,80),duration:clamp(finite(p.duration,4),.5,15),activity:clamp(finite(p.activity,.5)),expressions:[],gestures:[],fine:{},pose:{}};
+  const lifetimes=expressionLifetimes(catalog,params);
   for(const e of (Array.isArray(p.expressions)?p.expressions:[]).slice(0,5)){
-   if(!e||!catalog.expressions.some(x=>x.name===e.name)){report('unknown-expression','忽略未知表情 '+String(e?.name),'expressions',String(e?.name));continue;}
-   out.expressions.push({name:e.name,on:e.on!==false,persistent:e.persistent===true,seconds:e.persistent===true?null:clamp(finite(e.seconds,out.duration),.5,20)});
+   const exact=e&&catalog.expressions.find(x=>x.name===e.name),matches=e?catalog.expressions.filter(x=>x.aliases?.includes(e.name)):[];
+   let expression=exact||(matches.length===1?matches[0]:null);
+   if(!expression&&!matches.length&&typeof e?.name==='string'&&e.name.includes('\uFFFD')){
+    const intact=e.name.replaceAll('\uFFFD','');
+    const candidates=intact?catalog.expressions.filter(x=>x.name===intact||x.aliases?.includes(intact)):[];
+    if(candidates.length===1&&candidates[0].data.Parameters?.some(p=>params.ids.includes(p.Id)&&Number.isFinite(p.Value))){
+     expression=candidates[0];
+     report('expression-replacement-character-removed','移除损坏字符后精确匹配当前皮套表情 '+expression.name,'expressions',e.name);
+    }
+   }
+   if(!expression){report('unknown-expression','忽略未知或歧义表情 '+String(e?.name),'expressions',String(e?.name));continue;}
+   const {autoOff,lifetime}=lifetimes.get(expression);
+   const explicit=typeof e.persistent==='boolean'||Number.isFinite(e.seconds);
+   const persistent=e.persistent===true||(!explicit&&lifetime==='state');
+   out.expressions.push({name:expression.name,on:e.on!==false,persistent,seconds:persistent?null:clamp(finite(e.seconds??autoOff,out.duration),.5,20),...(!explicit?{implicitLifetime:true}:{})});
   }
   out.actions=actionTimeline(p,catalog,options,out.duration,report);
+  const controls=animationInfo(catalog,params,lifetimes).controls;
+  out.controls=(Array.isArray(p.controls)?p.controls:[]).slice(0,4).flatMap(c=>{const matches=controls.filter(x=>x.kind===c?.kind&&(x.name===c.name||x.aliases?.includes(c.name)));return matches.length===1?[{kind:matches[0].kind,name:matches[0].name}]:[];});
   out.actionEnd=out.actions.reduce((end,a)=>Math.max(end,a.at+a.seconds),0);
   // Keep legacy summaries for existing diagnostics/tools; only actions is executed.
   if(out.actions.some(a=>a.kind==='motion'))out.motion=out.actions.find(a=>a.kind==='motion').name;
@@ -135,6 +183,15 @@
   }
   for(const f of (Array.isArray(p.keyframes)?p.keyframes:[]))for(const [id,v]of Object.entries(f?.values||{})){if(!byId.has(id)||!params.ids.includes(id))invalid(id,'keyframes');else if(!Number.isFinite(v))report('invalid-parameter-value','忽略关键帧非有限值 '+id,'keyframes',id);}
   out.keyframes=rigTimeline(p,rows);
+  const protectedIds=new Set(options.protectedStateIds||[]);
+  out.parameterStates=[];
+  for(const entry of (Array.isArray(p.parameterStates)?p.parameterStates:[]).slice(0,8)){
+   const row=byId.get(entry?.id),value=entry?.value;
+   if(row?.lifetime!=='state'||protectedIds.has(row.id)||!(value===null||Number.isFinite(value))){
+    report('invalid-parameter-state','忽略未适配为持久开关或值无效的参数 '+String(entry?.id),'parameterStates',entry?.id);continue;
+   }
+   out.parameterStates.push({id:row.id,value:value===null?null:clamp(value,row.min,row.max)});
+  }
   return {plan:out,warnings:diagnostics.map(d=>d.message),diagnostics};
  }
  function timeline(data){
@@ -150,7 +207,9 @@
  }
  function activityDelay(base,work,quietFactor,aiActivity){return Math.max(15,base*(1+clamp(work)*Math.max(0,quietFactor-1))*(1.5-clamp(aiActivity)));}
  class Layer{
-  constructor(){this.current={};this.target={};this.until=0;this.holdUntil=0;this.last=0;}
+  constructor(){this.current={};this.target={};this.states=new Map();this.until=0;this.holdUntil=0;this.last=0;}
+  bindCharacter(character){if(this.character!==character){this.states.clear();this.current={};this.clear();this.character=character;}}
+  setStates(entries){for(const {id,value} of entries||[]){if(value===null)this.states.delete(id);else if(this.states.has(id)||this.states.size<24)this.states.set(id,value);}}
   set(values,now,duration,frames=[]){this.target={...values};this.start=now;this.until=now+duration;this.holdUntil=this.until;this.frames=frames;this.progress=null;}
   at(now,base){
    const target={...this.target};if(!this.frames?.length)return target;
@@ -166,7 +225,9 @@
   }
   hold(until){if(Number.isFinite(until))this.holdUntil=Math.max(this.until,until);}
   clear(){this.target={};this.frames=[];this.until=0;this.holdUntil=0;this.progress=null;}
-  frame(now,base){const dt=clamp(now-this.last,0,.1);this.last=now;const target=now<Math.max(this.until,this.holdUntil)?this.at(now,base):{};for(const id of new Set([...Object.keys(this.current),...Object.keys(target)])){
+  frame(now,base){const dt=clamp(now-this.last,0,.1);this.last=now;
+   const held=Object.fromEntries(this.states),target={...held,...(now<Math.max(this.until,this.holdUntil)?this.at(now,{...base,...held}):{})};
+   for(const id of new Set([...Object.keys(this.current),...Object.keys(target)])){
     const desired=id in target?target[id]:(base[id]??0),from=this.current[id]??base[id]??0;
     this.current[id]=from+(desired-from)*(1-Math.exp(-dt*9));if(!(id in target)&&Math.abs(this.current[id]-desired)<.001)delete this.current[id];
    }return {...base,...this.current};}
@@ -178,13 +239,28 @@
   summary(){return {duration:this.plan.duration,actionEnd:this.plan.actionEnd||0,authoredVisualSpan:this.authoredEnd,audioDuration:this.audioDuration,scale:this.scale,remainingScale:this.remainingScale,effectiveActionEnd:this.actions.reduce((v,a)=>Math.max(v,a.at+a.seconds),0),effectiveVisualSpan:this.endAt,keyframeDuration:this.keyframeEnd,timingMode:this.timingMode,phase:this.phase,notes:this.notes.slice(),...(this.adjustedAt!==undefined?{scaleAdjustedAtAudioTime:this.adjustedAt}:{}),actions:this.actions.map(a=>({...a})),authoredActions:(this.plan.actions||[]).map(a=>({...a}))};}
   notify(){try{this.onTiming(this.summary());}catch{/* reporting must not interrupt playback */}}
   start(plan,now,media={}){
+   this.layer.bindCharacter(this.character);
+   this.layer.setStates(plan.parameterStates);
    this.plan=plan;this.startTime=now;this.media=media.media===true;this.done=false;this.audioEnded=false;this.next=0;this.elapsed=0;this.owned=[];this.phase=this.media?'playing':'authored';this.notes=[];
    this.authoredEnd=Math.max(plan.duration,plan.actionEnd||0);this.audioDuration=this.media&&Number.isFinite(media.audioDuration)&&media.audioDuration>0?media.audioDuration:0;
    this.scale=this.audioDuration>this.authoredEnd?this.audioDuration/this.authoredEnd:1;this.remainingScale=this.scale;this.pivotAuthored=0;this.pivotElapsed=0;this.timingMode=this.scale>1?'proportional':'authored';this.adjustedAt=undefined;
    this.actions=(plan.actions||[]).map(a=>({...a,at:a.at*this.scale,seconds:a.seconds*this.scale}));this.endAt=this.authoredEnd*this.scale;this.keyframeEnd=plan.duration*this.scale;
    if(this.audioDuration&&this.audioDuration<this.authoredEnd)this.notes.push('short-audio-tail');
    const end=now+Math.max(this.endAt,this.audioDuration?this.audioDuration+.25:0);
-   for(const e of plan.expressions){const seconds=e.persistent?null:this.media?e.seconds*this.scale:e.seconds;this.character.setExpression(e.name,e.on,now,seconds);const state=this.character.expressions.get(e.name);if(e.on&&!e.persistent&&state)this.owned.push({kind:'expression',name:e.name,state,expires:state.expires,held:this.media,untilAuthored:e.seconds,untilElapsed:e.seconds*this.scale});}
+   for(const control of plan.controls||[]){
+    if(control.kind==='clearExpressions')for(const [name,state] of this.character.expressions)if(state.aiOwned)this.character.setExpression(name,false,now);
+    if(control.kind==='idle'){const motion=this.character.catalog.motions.find(m=>m.name===control.name);if(motion){if(!this.idleOwned)this.idleBefore=this.character.tracking;this.idleOwned=motion;this.character.tracking=motion;}}
+   }
+   for(const e of plan.expressions){
+    const current=this.character.expressions.get(e.name);
+    if(e.on&&e.implicitLifetime&&current?.to>0&&(!current.aiOwned||current.expires===null))continue;
+    const seconds=e.persistent?null:this.media?e.seconds*this.scale:e.seconds;
+    this.character.setExpression(e.name,e.on,now,seconds);
+    const state=this.character.expressions.get(e.name);
+    if(!e.on||!state)continue;
+    state.aiOwned=true;
+    if(!e.persistent)this.owned.push({kind:'expression',name:e.name,state,expires:state.expires,held:this.media,untilAuthored:e.seconds,untilElapsed:e.seconds*this.scale});
+   }
    this.layer.set({...plan.pose,...plan.fine},now,this.keyframeEnd,plan.keyframes);
    this.layer.hold(end);this.tick(now,this.media?Math.max(0,media.audioElapsed||0):undefined);this.notify();
   }
@@ -243,6 +319,7 @@
    if(this.elapsed>=this.endAt-.000001)this.release(now);else this.layer.hold(now+this.endAt-this.elapsed);
   }
   release(now,cancel=false){
+   if(this.idleOwned&&this.character.tracking===this.idleOwned)this.character.tracking=this.idleBefore;
    if(this.done)return;this.next=this.actions.length;this.done=true;this.layer.clear();
    for(const row of this.owned){const state=this.current(row);if(row.kind==='queued'){if(state===row.state&&state.queued===row.queued)state.queued=null;continue;}if((cancel||row.held)&&state===row.state&&state.expires===row.expires){if(row.kind==='expression')this.character.setExpression(row.name,false,now);else this.character.gesture(row.name,false,now);}}
    if(cancel&&this.motion&&this.character.temporary===this.motion)this.character.temporary=null;this.media=false;this.phase=cancel?'cancelled':'finished';this.notify();
@@ -251,3 +328,5 @@
 
  const api={rig,animationInfo,gestureInfo,actionTimeline,limitLists,validatePlan,timeline,sample,activityDelay,Layer,Performance,fineIds,poseIds,vowels};if(typeof module!=='undefined')module.exports=api;else root.CompanionCore=api;
 })(globalThis);
+
+

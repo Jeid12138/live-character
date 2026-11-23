@@ -18,9 +18,12 @@ const services=new Map(),hooks=installHooks({provide:(key,value)=>services.set(k
 const api=services.get('liveCharacter');assert(api);assert.equal(services.get('writingPet'),api);
 let events=0;const off=services.get('writingPet').on('model',()=>events++);hooks.emit('model',{profile:'fixture'});await new Promise(r=>setImmediate(r));assert.equal(events,1);off();
 api.registerContext('fixture',()=> 'context from canonical service');assert.equal((await hooks.context({type:'chat',text:'x'},new AbortController().signal,'model','role')).length,1);
-let descriptor;const fakeReact={createElement(){}};
+let descriptor;const fakeReact={createElement(type,props){return {type,props};}};
 vm.runInNewContext(fs.readFileSync(new URL('../client.js',import.meta.url),'utf8'),{window:{__ModuleLoader__:{load(value){descriptor=value;}}}});
 assert.equal(descriptor.id,pkg.name);const plugin=descriptor.factory(()=>fakeReact),slots=[];
-plugin.apply({connection:{rpc:{}},layout:{},effect(){},slots:{inject(_slot,fn){fn();},register(meta){slots.push(meta);}}});
+plugin.apply({connection:{rpc:{}},layout:{},effect(){},slots:{inject(_slot,fn){fn();},register(meta,component){slots.push({...meta,component});}}});
 assert(slots.some(x=>x.key===pkg.name+'.settings'));assert(slots.some(x=>x.id===pkg.name+'.settings'&&x.label()==='Live Character'));
+const icon=slots.find(x=>x.name==='sidebar.panellist').component({size:16});
+assert.equal(icon.type,'img');assert.equal(icon.props.width,16);assert.equal(icon.props.height,16);
+assert.equal(decodeURIComponent(icon.props.src.split(',')[1]),fs.readFileSync(new URL('../lab/logo.svg',import.meta.url),'utf8').trim());
 console.log('PASS canonical package/preset/client/route/slots and shared deprecated service alias without duplicate events');

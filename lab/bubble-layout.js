@@ -12,9 +12,9 @@
   const speed=clamp(Number(options.speed)||300,60,1200),extra=clamp(Number(options.extra)||0,0,30);
   return Math.max(base,Math.ceil(units(text)*60/speed+extra));
  }
- function fit({text,font=15,maxWidth,maxHeight,measure}){
+ function fit({text,font=15,maxWidth,maxHeight,characterWidth,measure}){
   const maxW=Math.max(40,maxWidth),maxH=Math.max(30,maxHeight),base=clamp(font,9,26);
-  const preferred=clamp(Math.sqrt(Math.max(1,Array.from(String(text)).length)*base*base*2),Math.min(220,maxW),Math.min(680,maxW));
+  const preferred=clamp(Math.sqrt(Math.max(1,Array.from(String(text)).length)*base*base*2),Math.min(220,maxW),Math.min(maxW,clamp(Number(characterWidth)||680,220,680)));
   let size=base,width=preferred,box=measure(width,size,false),compact=false;
   while(box.height>maxH&&width<maxW){width=Math.min(maxW,width+Math.max(80,width*.25));box=measure(width,size,false);}
   while((box.height>maxH||box.width>maxW)&&size>9){size--;box=measure(width,size,false);}

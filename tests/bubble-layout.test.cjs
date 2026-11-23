@@ -4,3 +4,27 @@ assert.equal(B.units('你好，世界！'),6);assert.equal(B.units('AI制作 Hel
 const measure=(text)=>(width,font)=>({width:Math.min(width,text.length*font+30),height:Math.ceil(text.length/Math.max(1,Math.floor((width-30)/font)))*font*1.45+22});
 const short=B.fit({text:'你好',font:15,maxWidth:1200,maxHeight:700,measure:measure('你好')});const long=B.fit({text:'字'.repeat(1200),font:26,maxWidth:1200,maxHeight:700,measure:measure('字'.repeat(1200))});assert(long.width>short.width);assert(long.height>short.height);assert(long.width<=1200&&long.height<=700);assert(long.font<=26&&long.font>=9);
 console.log('PASS bubble reading units, short minimum, uncapped long duration, fixed mode, custom reading speed, adaptive width/height/font');
+
+const {test}=require('node:test');
+const {boot}=require('./fixtures/browser-lab.cjs');
+test('chat overlay follows the model and stays inside the stage during resize',async()=>{
+ const f=await boot();
+ try{
+  const {w}=f,field=id=>w.document.getElementById(id),stage=field('stage'),chat=field('galForm');
+  let width=900,height=700,bounds={x:100,y:120,width:220,height:240};
+  Object.defineProperties(stage,{clientWidth:{get:()=>width},clientHeight:{get:()=>height}});
+  Object.defineProperty(chat,'offsetHeight',{get:()=>Math.min(148,height-16)});
+  Object.defineProperty(w.companionHost,'bounds',{get:()=>bounds});
+  chat.hidden=false;
+  w.studioPositionChat();
+  assert.equal(chat.style.left,'80px');
+  assert.equal(chat.style.top,'368px');
+  width=290;height=200;bounds={x:250,y:150,width:200,height:270};
+  w.studioPositionChat();
+  assert.equal(chat.style.left,'22px');
+  assert.equal(chat.style.top,'44px');
+  assert.equal(parseFloat(chat.style.left)+parseFloat(chat.style.width)<=width-8,true);
+  assert.equal(parseFloat(chat.style.top)+chat.offsetHeight<=height-8,true);
+ }finally{f.dom.window.close();}
+});
+

@@ -1,15 +1,33 @@
 // Keep offline saving separate from optional cloud authentication.
 const {createHash}=require('node:crypto'),secrets=require('./voice-secrets.cjs');
+const {capabilities}=require('../lab/voice-catalog.js');
 function failure(code,message,stage='save',cause){const e=Error(message);e.voice={stage,errorCode:code,errorType:cause?.name||'Error',causeCode:cause?.code};return e}
 const strings={voiceApiUrl:2000,voiceApiModel:150,breezeEndpoint:2000,breezeInstruction:2000,tts:2000,voice:200,referenceText:2000};
 function fields(input){
  if(!input||typeof input!=='object')throw failure('invalid_voice_settings','缺少语音设置','validate');
- const prefs={};for(const [field,max] of Object.entries(strings)){if(typeof input[field]!=='string'||input[field].length>max)throw Object.assign(failure('invalid_voice_settings','语音设置字段格式或长度不正确：'+field,'validate'),{voice:{stage:'validate',errorCode:'invalid_voice_settings',errorType:'Error',field}});prefs[field]=input[field]}
+ const prefs={};
+ if(input.referenceName!==undefined){
+  const name=input.referenceName;
+  if(typeof name!=='string'||name.length>255||name!==''&&(!/\.(wav|mp3|flac|ogg|m4a)$/i.test(name)||/[<>:"/\\|?*\x00-\x1f]/.test(name)))
+   throw failure('invalid_voice_settings','参考录音文件名无效，请重新选择','validate');
+  prefs.referenceName=name;
+ }
+ for(const [field,max] of Object.entries(strings)){if(typeof input[field]!=='string'||input[field].length>max)throw Object.assign(failure('invalid_voice_settings','语音设置字段格式或长度不正确：'+field,'validate'),{voice:{stage:'validate',errorCode:'invalid_voice_settings',errorType:'Error',field}});prefs[field]=input[field]}
  prefs.voiceMode=input.voiceMode;prefs.voiceProvider=input.voiceProvider;prefs.voiceNetwork=input.voiceNetwork;
+ prefs.voiceStreaming=capabilities(prefs.voiceMode,prefs.voiceApiModel,prefs.voiceProvider).streaming&&input.voiceStreaming===true;
+ prefs.voiceCudaGraph=false;
+ prefs.idleVramOptimization=input.idleVramOptimization===true;
  if(!['api','local','breeze'].includes(prefs.voiceMode)||!['breeze','fish','qwen','openai','index','auk'].includes(prefs.voiceProvider)||!['direct','system'].includes(prefs.voiceNetwork))throw failure('invalid_voice_settings','语音来源、服务商或网络设置无效','validate');
  if(typeof input.autoVoice!=='boolean'||!Number.isFinite(input.lipGain)||input.lipGain<0||input.lipGain>1.5||!Number.isFinite(input.lipOffset)||Math.abs(input.lipOffset)>2)throw failure('invalid_voice_settings','朗读或口型设置无效','validate');
  prefs.voiceGuidance=Number.isFinite(input.voiceGuidance)?input.voiceGuidance:2.5;if(prefs.voiceGuidance<1||prefs.voiceGuidance>10)throw failure('invalid_voice_settings','演绎指令强度须为 1–10','validate');
  Object.assign(prefs,{autoVoice:input.autoVoice,lipGain:input.lipGain,lipOffset:input.lipOffset,voiceProfiles:{}});
+ if(['normal','clone'].includes(input.voiceStyle))prefs.voiceStyle=input.voiceStyle;
+ if(typeof input.managedVoiceModel==='string'&&input.managedVoiceModel.length<=200)prefs.managedVoiceModel=input.managedVoiceModel;
+ if(input.localVoiceProfile){
+  const {voice,instruction}=input.localVoiceProfile;
+  if(typeof voice!=='string'||voice.length>200||typeof instruction!=='string'||instruction.length>2000)throw failure('invalid_voice_settings','本地音色配置无效','validate');
+  prefs.localVoiceProfile={voice,instruction};
+ }
  for(const [provider,p] of Object.entries(input.voiceProfiles||{})){
   if(!['breeze','fish','qwen','openai','index','auk'].includes(provider)||!p||typeof p!=='object')throw failure('invalid_voice_settings','服务商预设格式不正确','validate');
   const entry={guidance:Number.isFinite(p.guidance)?Math.max(1,Math.min(10,p.guidance)):2.5,network:p.network==='system'?'system':'direct'};for(const key of ['endpoint','model','voice','instruction']){if(typeof p[key]!=='string'||p[key].length>2000)throw failure('invalid_voice_settings','服务商预设字段无效','validate');entry[key]=p[key]}prefs.voiceProfiles[provider]=entry;

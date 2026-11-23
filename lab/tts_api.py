@@ -1,5 +1,7 @@
 """Provider-specific, bounded cloud TTS. No credentials or signed URLs are logged."""
 import base64,io,json,re,urllib.request,urllib.parse,urllib.error,wave,ssl,socket,http.client
+from contextlib import contextmanager
+from companion import voice_handlers
 LIMIT=16*1024*1024
 QWEN_PATH='/api/v1/services/aigc/multimodal-generation/generation'
 
@@ -22,7 +24,7 @@ def network_error(error,phase,proxy_used):
     elif isinstance(reason,socket.gaierror):code='dns_error';message='域名解析失败，请检查 DNS 或代理设置'
     elif isinstance(reason,(TimeoutError,socket.timeout)):code=phase+'_timeout';message='连接超时' if phase=='connect' else '读取音频超时'
     elif isinstance(reason,ConnectionRefusedError):code='connect_refused';message='连接被拒绝，请检查服务或系统代理是否已启动'
-    elif isinstance(reason,(ConnectionResetError,http.client.RemoteDisconnected)):code='connection_reset';message='连接被远端或代理中断'
+    elif isinstance(reason,(ConnectionResetError,ConnectionAbortedError,http.client.RemoteDisconnected)):code='connection_reset';message='连接被远端或代理中断'
     else:code='network_error';message='网络请求失败，请检查语音网络设置'
     return TtsError(message+'；未自动重试',stage=phase,errorCode=code,errorType=kind if re.fullmatch(r'[A-Za-z_]{1,64}',kind) else 'NetworkError',proxyUsed=proxy_used)
 
@@ -80,7 +82,8 @@ def build(body,text):
         payload={'model':model,'input':text,'voice':voice,'response_format':'wav'}
     return provider,url,headers,payload
 
-def request(url,headers,payload=None,network='direct'):
+@contextmanager
+def open_response(url,headers,payload=None,network='direct'):
     if network not in ('direct','system'):raise TtsError('语音网络设置无效',stage='validate',errorCode='invalid_network')
     req=urllib.request.Request(url,headers=headers,data=None if payload is None else json.dumps(payload,ensure_ascii=False).encode(),method='GET' if payload is None else 'POST')
     # An explicit empty handler disables both environment and OS proxy inheritance.
@@ -89,14 +92,15 @@ def request(url,headers,payload=None,network='direct'):
     proxy_used=bool(proxies.get(target.scheme)) and not urllib.request.proxy_bypass(target.netloc)
     phase='connect'
     try:
-        with urllib.request.build_opener(urllib.request.ProxyHandler(proxies),NoRedirect).open(req,timeout=90) as response:
-            phase='read';raw=response.read(LIMIT+1);mime=response.headers.get_content_type()
-        if not raw or len(raw)>LIMIT:raise TtsError('语音响应为空或超过 16MB',stage='audio',errorCode='invalid_audio',proxyUsed=proxy_used)
-        return raw,mime
+        with urllib.request.build_opener(urllib.request.ProxyHandler(proxies),NoRedirect,*voice_handlers()).open(req,timeout=90) as response:
+            phase='read'
+            yield response
     except urllib.error.HTTPError as e:
         code=''
         try:
-            obj=json.loads(e.read(8192));detail=obj.get('error') or obj.get('detail') or obj
+            with e:
+                obj=json.loads(e.read(8192))
+            detail=obj.get('error') or obj.get('detail') or obj
             if isinstance(detail,dict):code=str(detail.get('code') or detail.get('status') or '')
             else:code=str(obj.get('code',''))
         except Exception:pass
@@ -107,6 +111,99 @@ def request(url,headers,payload=None,network='direct'):
         raise TtsError('语音服务 HTTP '+str(e.code)+(' / '+code if code else '')+'：'+hints.get(e.code,'请核对模型、音色及服务状态；未自动重试'),stage='http',httpStatus=e.code,errorCode=code or 'http_error',errorType='HTTPError',proxyUsed=proxy_used) from None
     except TtsError:raise
     except (urllib.error.URLError,TimeoutError,OSError,http.client.HTTPException) as e:raise network_error(e,phase,proxy_used) from None
+
+
+def request(url,headers,payload=None,network='direct'):
+    with open_response(url,headers,payload,network) as response:
+        raw=response.read(LIMIT+1)
+        mime=response.headers.get_content_type()
+    if not raw or len(raw)>LIMIT:raise TtsError('语音响应为空或超过 16MB',stage='audio',errorCode='invalid_audio')
+    return raw,mime
+
+
+def invalid_stream():
+    return TtsError('云端音频流为空、格式不符、超过 16MB 或提前断开',stage='audio',errorCode='invalid_audio')
+
+
+def qwen_pcm(response):
+    if response.headers.get_content_type()!='text/event-stream':
+        raise invalid_stream()
+    lines=[]
+    size=0
+    while line:=response.readline(LIMIT+1):
+        size+=len(line)
+        if size>LIMIT*2 or len(line)>LIMIT:
+            raise invalid_stream()
+        line=line.rstrip(b'\r\n')
+        if line.startswith(b'data:'):
+            lines.append(line[5:].lstrip(b' '))
+        if line or not lines:
+            continue
+        try:
+            event=json.loads(b'\n'.join(lines))
+            if event.get('code') or event.get('status_code',200)!=200:
+                raise TtsError('百炼拒绝了语音合成请求',stage='http',errorCode='upstream_stream_error')
+            output=event['output']
+            audio=output.get('audio') or {}
+            data=audio.get('data')
+            if data:
+                yield base64.b64decode(data,validate=True)
+            if output.get('finish_reason')=='stop':
+                return
+        except TtsError:
+            raise
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise invalid_stream() from None
+        lines.clear()
+    raise invalid_stream()
+
+
+def raw_pcm(response):
+    if response.headers.get_content_type() not in ('audio/pcm','audio/x-pcm','application/octet-stream'):
+        raise invalid_stream()
+    while chunk:=response.read1(8192):
+        yield chunk
+    if response.length:
+        raise invalid_stream()
+
+
+def stream(body,text,cancelled):
+    try:
+        provider,url,headers,payload=build(body,text)
+    except ValueError as error:
+        raise TtsError(str(error),stage='validate',errorCode='invalid_request') from None
+    if provider=='breeze':
+        url=url.split('?',1)[0]+'/stream?output_format=pcm'
+    elif provider=='fish':
+        payload.update(format='pcm',sample_rate=24000)
+    elif provider=='qwen':
+        headers['X-DashScope-SSE']='enable'
+    else:
+        raise TtsError('所选服务未提供实时 PCM',stage='validate',errorCode='stream_unsupported')
+    if cancelled():
+        return
+    headers['Accept']='text/event-stream' if provider=='qwen' else 'audio/pcm, application/octet-stream'
+    try:
+        with open_response(url,headers,payload,body.get('network','direct')) as response:
+            chunks=qwen_pcm(response) if provider=='qwen' else raw_pcm(response)
+            total=0
+            carry=b''
+            for chunk in chunks:
+                if cancelled():
+                    return
+                total+=len(chunk)
+                if total>LIMIT:
+                    raise invalid_stream()
+                chunk=carry+chunk
+                end=len(chunk)&~1
+                carry=chunk[end:]
+                if end:
+                    yield chunk[:end]
+            if not cancelled() and (carry or not total):
+                raise invalid_stream()
+    except TtsError:
+        if not cancelled():
+            raise
 
 
 def audio_result(raw,mime):

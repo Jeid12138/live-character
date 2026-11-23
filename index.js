@@ -1,8 +1,8 @@
-import {installPanel,installHooks} from './host-panel.js';
+import {installPanel,installHooks,pluginVersion} from './host-panel.js';
 import {responseObject} from './model-response.js';
 import {sessionBridge} from './pet-sessions.js';
 import {diagnoseDependencies,dependencyAssistanceAvailability} from './dependency-assist.js';
-import {createRuntimeLauncher} from './runtime-launcher.js';
+import {createRuntimeLauncher,preparationExitError} from './runtime-launcher.js';
 import http from 'node:http';
 import fs from 'node:fs';
 import VoiceDiagnostics from './desktop/voice-diagnostics.cjs';
@@ -16,6 +16,17 @@ export const name = 'live-character';
 export const inject = ['agentPresets'];
 const root = path.dirname(fileURLToPath(import.meta.url));
 
+function currentScreenConsent(payload){
+ const p=preferences(),owner=p.active;
+ if(p.ai===false||p.processContext!==true||p.screenObservation!==true||payload.event?.type!=='observe'||payload.event.automatic!==true)return false;
+ if(!owner||!/^char-[a-f0-9-]{36}$/i.test(owner.characterId)||owner.characterId!==payload.context?.characterId||owner.profile!==payload.context?.profile)return false;
+ try{
+  const assetRoot=p.assetRoot||path.join(process.env.LOCALAPPDATA,'LiveCharacter','asset');
+  const session=JSON.parse(fs.readFileSync(path.join(assetRoot,'_characters',owner.characterId,'memory','session.json'),'utf8'));
+  return typeof session.id==='string'&&session.id===payload.route?.id;
+ }catch{return false;}
+}
+
 function recordSession(route, error, workspaceGrouping,transport) {
   if (!process.env.LOCALAPPDATA) return;
   const dir = path.join(process.env.LOCALAPPDATA, 'LiveCharacter', 'logs');
@@ -23,12 +34,12 @@ function recordSession(route, error, workspaceGrouping,transport) {
   try {
     fs.mkdirSync(dir, {recursive:true});
     const dest = path.join(dir, 'session-last.json');
-    fs.writeFileSync(dest + '.tmp', JSON.stringify({version:'0.12.36', at:new Date().toISOString(),route,code,stage:error?.lcStage,workspaceGrouping,...(transport?{transport}:{})}));
+    fs.writeFileSync(dest + '.tmp', JSON.stringify({version:pluginVersion, at:new Date().toISOString(),route,code,stage:error?.lcStage,workspaceGrouping,...(transport?{transport}:{})}));
     fs.renameSync(dest + '.tmp', dest);
   } catch { /* A diagnostic write must not interrupt the turn. */ }
 }
 
-export async function decide(llm, config, payload, signal, sessions, attachments) {
+export async function decide(llm, config, payload, signal, sessions, attachments, screenConsent) {
   const {instruction, inference={},visuals, ...context} = payload;
   const nativeEvent=['chat','touch','observe','model_change'].includes(context.event?.type),following=nativeEvent&&inference.followSessionModel===true;
   if(!nativeEvent&&typeof instruction!=='string')throw Error('适配作业缺少说明');
@@ -62,21 +73,34 @@ export async function decide(llm, config, payload, signal, sessions, attachments
   if(!effort&&supported.size)throw Error('模型声明的推理档位全部超过自适应上限，请选择其他模型或调整上限');
   let sessionNote;
   if(nativeEvent&&(!sessions||!context.route?.id))throw Object.assign(Error('角色互动需要有效 DSH 会话，未改用直连生成'),{code:'SESSION_UNAVAILABLE',submitted:false});
-  const modelChange=context.event?.type==='model_change';let appearanceSource='metadata',appearanceNote;
+  const modelChange=context.event?.type==='model_change',screenObservation=context.event?.type==='observe'&&context.event.automatic===true;let appearanceSource='metadata',appearanceNote;
   const images=[];
   if(visuals!==undefined){
-   if(!Array.isArray(visuals)||visuals.length!==(modelChange?1:2)||(!adapting&&!modelChange))throw Error('角色图像请求无效');
+   if(!Array.isArray(visuals)||visuals.length!==(adapting?2:1)||(!adapting&&!modelChange&&!screenObservation))throw Error('角色图像请求无效');
    for(const image of visuals)if(typeof image!=='string'||image.length>850000||!image.startsWith('data:image/jpeg;base64,'))throw Error('角色图像格式或大小无效');
    if(!following&&!info.inputModalities?.includes('image')||!attachments?.saveImage){
-    if(!modelChange)throw Error('当前模型未声明图片输入或缺少图片附件服务，请选择支持图片的模型后再适配触摸区域');
+    if(adapting)throw Error('当前模型未声明图片输入或缺少图片附件服务，请选择支持图片的模型后再适配触摸区域');
     appearanceNote='当前模型或附件服务不支持图片；本次仍通过角色会话使用名称和已有记录，未建立新的视觉认知';
    }else{
-    for(const image of visuals){const data=Buffer.from(image.slice(23),'base64');if(data[0]!==255||data[1]!==216)throw Error('角色图片解码失败');const attachment=await attachments.saveImage({data,mediaType:'image/jpeg'});images.push({type:'image',attachment});}
-    appearanceSource='image';
+    for(const image of visuals){
+     const data=Buffer.from(image.slice(23),'base64');if(data[0]!==255||data[1]!==216)throw Error('角色图片解码失败');
+     signal?.throwIfAborted();
+     if(screenObservation&&screenConsent&&!screenConsent())break;
+     try{const attachment=await attachments.saveImage({data,mediaType:'image/jpeg'});images.push({type:'image',attachment});}
+     catch(error){if(!screenObservation||signal?.aborted)throw error;}
+    }
+    if(images.length)appearanceSource='image';
    }
   }
   if(nativeEvent){
-   try{const result=await sessions.chat({...payload,appearanceEvidence:appearanceSource},signal,following?undefined:{provider,model,...(effort?{reasoningEffort:effort}:{})},images);recordSession('session',null,result.workspaceGrouping,result.transport);return {...result,...(modelChange?{appearanceSource:result.appearanceSource||appearanceSource,appearanceNote:result.appearanceNote||appearanceNote}:{}),sessionNote:'DSH 角色会话'+(following?' · 跟随会话选模':'')+(result.workspaceGrouping?.status==='unavailable'?' · '+result.workspaceGrouping.message:'')};}
+   try{const result=await sessions.chat({...context,instruction,inference,screenAttached:screenObservation&&images.length===1,appearanceEvidence:appearanceSource},signal,following?undefined:{provider,model,...(effort?{reasoningEffort:effort}:{})},images,screenObservation?screenConsent:undefined);
+    recordSession('session',null,result.workspaceGrouping,result.transport);
+    let imageNote='';
+    if(screenObservation&&visuals){
+     const count=result.transport?.attachmentCount??images.length;
+     imageNote=count>0?' · 已附当前屏幕截图':' · 本次观察使用文字';
+    }
+    return {...result,...(modelChange?{appearanceSource:result.appearanceSource||appearanceSource,appearanceNote:result.appearanceNote||appearanceNote}:{}),sessionNote:'DSH 角色会话'+(following?' · 跟随会话选模':'')+(result.workspaceGrouping?.status==='unavailable'?' · '+result.workspaceGrouping.message:'')+imageNote};}
    catch(e){recordSession('session-error',e);throw e;}
   }
   delete context.route;
@@ -145,9 +169,9 @@ export function apply(ctx, config={}) {
       const voice=VoiceDiagnostics.read(path.join(process.env.LOCALAPPDATA,'LiveCharacter'));
       const file=path.join(process.env.LOCALAPPDATA,'LiveCharacter','logs','renderer-last-error.json');
       try{
-        const saved=JSON.parse(fs.readFileSync(file,'utf8')),historical=saved.version!=='0.12.36';
-        return {...saved,voice,currentVersion:'0.12.36',workspaceGrouping:sessions.workspaceStatus?.(),historical,online:!!port,file,message:historical?'旧版本保存的页面日志，不代表本次启动进入了渲染阶段':!port?'当前版本保存的页面日志，角色此时未连接':'当前版本页面日志'};
-      }catch{return {voice,currentVersion:'0.12.36',workspaceGrouping:sessions.workspaceStatus?.(),events:[],file,message:'尚无角色页面错误记录'};}
+        const saved=JSON.parse(fs.readFileSync(file,'utf8')),historical=saved.version!==pluginVersion;
+        return {...saved,voice,currentVersion:pluginVersion,workspaceGrouping:sessions.workspaceStatus?.(),historical,online:!!port,file,message:historical?'旧版本保存的页面日志，不代表本次启动进入了渲染阶段':!port?'当前版本保存的页面日志，角色此时未连接':'当前版本页面日志'};
+      }catch{return {voice,currentVersion:pluginVersion,workspaceGrouping:sessions.workspaceStatus?.(),events:[],file,message:'尚无角色页面错误记录'};}
     }
     if(!port||life.signal.aborted){
       const status=runtimeStatus();
@@ -158,17 +182,27 @@ export function apply(ctx, config={}) {
   };
   const token = randomBytes(32).toString('hex');
   const life = new AbortController();
-  let startError='';let navigation=0,launcher,launchRuntime=()=>{throw Error('DSH 插件正在启动');},cancelRuntime=async()=>({cancelled:false});
+  let startError='',navigation=0,launcher,currentRunId;
+  let characterProcess,installerProcess,busy=false;
+  let resolveBridge;
+  const bridgeReady=new Promise(resolve=>{resolveBridge=resolve;});
+  const launchRuntime=async cmd=>{
+    if(!await bridgeReady||life.signal.aborted)throw Error(startError||'DSH 插件已停止');
+    return launcher.launch({runId:cmd?.runId});
+  };
+  const cancelRuntime=async id=>await bridgeReady?launcher.cancel(id):{cancelled:false};
   const runtimeStatus=()=>{
+    const state={...launcher?.state(),online:!!port,starting:!!characterProcess&&!port};
     try{
       const status=JSON.parse(fs.readFileSync(path.join(process.env.LOCALAPPDATA,'LiveCharacter','install-status.json'),'utf8'));
-      if(status.version==='0.12.36')return {...status,...launcher?.state(),message:startError||status.message,phase:startError&&status.phase!=='cancelled'?'failed':status.phase};
+      const active=state.preparing||state.starting||state.online;
+      const terminal=['failed','cancelled','missing'].includes(status.phase)||(status.phase==='ready'&&status.manualStart);
+      if(currentRunId&&status.version===pluginVersion&&status.runId===currentRunId&&(active||terminal))return {...status,...state,message:startError||status.message,phase:startError&&status.phase!=='cancelled'?'failed':status.phase};
     }catch{}
-    return {phase:startError?'failed':'idle',message:startError||'角色未启动'};
+    return {...state,phase:startError?'failed':'idle',message:startError||'角色未启动'};
   };
   installPanel(ctx,cmd=>cmd.op==='navigation'?{sequence:navigation}:cmd.op==='launch'?launchRuntime(cmd):cmd.op==='launch-cancel'?cancelRuntime(cmd.runId):cmd.op==='dependencies'?runtimeStatus():cmd.op==='models'?availableModels():cmd.op==='links'?hooks.links():request(cmd));const hooks=installHooks(ctx,request);
   async function availableModels(){const llm=ctx.get('llm');if(!llm)return [];const providers=llm.listProviders().map(p=>p.id);const results=await Promise.allSettled(providers.map(id=>llm.listModels(id)));return [...new Set(results.filter(r=>r.status==='fulfilled').flatMap(r=>r.value).map(m=>typeof m==='string'?m:m.id).filter(Boolean))];}
-  let child,characterProcess,installerProcess, busy = false;
   const server = http.createServer(async (req,res) => {
     const send = (code,body) => { res.writeHead(code,{'content-type':'application/json'}); res.end(JSON.stringify(body)); };
     if (req.headers.authorization !== 'Bearer '+token || req.headers.origin) return send(403,{});
@@ -197,9 +231,12 @@ export function apply(ctx, config={}) {
     if(req.method==='POST'&&req.url==='/pet-event'){let raw='';for await(const c of req){raw+=c;if(raw.length>16000)return send(413,{});}try{const e=JSON.parse(raw);hooks.emit(e.kind,e.payload);return send(200,{});}catch{return send(400,{});}}
     if(req.method==='POST'&&req.url==='/open-settings'){navigation=Date.now();return send(200,{});}
     if(req.method==='POST'&&req.url==='/desktop-online'){
+      const announcing=characterProcess;
       let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>5)return send(400,{});}const candidate=Number(raw);
       if(!Number.isInteger(candidate)||candidate<1024||candidate>65535)return send(400,{});
-      port=candidate;hooks.emit('online',{online:true});return send(200,{});
+      if(!announcing||characterProcess!==announcing||life.signal.aborted)return send(409,{});
+      if(port!==candidate){port=candidate;hooks.emit('online',{online:true});}
+      return send(200,{});
     }
     if(req.method==='GET'&&req.url==='/dependency-assist-status'){
       try{
@@ -224,6 +261,9 @@ export function apply(ctx, config={}) {
       }catch(error){return send(400,{error:String(error.message).slice(0,400)});}
       finally{releaseDisconnect();busy=false;pendingAI=null;pendingDependencyAI=null;}
     }
+    if(req.method==='POST'&&req.url==='/transcribe-reference'){
+      return send(400,{error:'当前 DSH 模型接口仅支持文字和图片输入，无法识别录音'});
+    }
     if(req.method==='POST'&&req.url==='/balance'){try{return send(200,await balance(ctx));}catch(err){return send(400,{error:err.message});}}
     if (req.method !== 'POST' || req.url !== '/decide') return send(404,{});
     if(preferences().ai===false)return send(409,{error:'AI 调用已关闭'});
@@ -235,29 +275,32 @@ export function apply(ctx, config={}) {
       const payload=JSON.parse(body),following=payload.inference?.followSessionModel===true&&['chat','touch','observe','model_change'].includes(payload.event?.type);const llm=following?null:ctx.get('llm');if(!following&&!llm)throw Error('DSH 模型服务尚未就绪，请检查模型服务后重试');
       pendingAI=new AbortController();const signal=AbortSignal.any([pendingAI.signal,life.signal,AbortSignal.timeout(payload.event?.type==='adapt'?240000:80000)]);
       const extra=await hooks.context(payload.event,signal,payload.context?.profile,payload.context?.characterId);if(extra.length)payload.pluginContext=extra;
-      let attachmentService;if(payload.visuals){try{attachmentService=ctx.get('attachments');}catch(error){if(payload.event?.type!=='model_change')throw error;}}
-      const result=await decide(llm,config,payload,signal,sessions,attachmentService);hooks.reply(payload.event,result,payload.context);send(200,result);
+      const screenConsent=payload.event?.type==='observe'&&payload.visuals?()=>currentScreenConsent(payload):undefined;
+      if(screenConsent&&!screenConsent())delete payload.visuals;
+      let attachmentService;if(payload.visuals){try{attachmentService=ctx.get('attachments');}catch(error){if(!['model_change','observe'].includes(payload.event?.type))throw error;}}
+      const result=await decide(llm,config,payload,signal,sessions,attachmentService,screenConsent);hooks.reply(payload.event,result,payload.context);send(200,result);
     } catch (error) { send(400,{error:String(error.message).slice(0,300),code:error.code,submitted:error.submitted===true,diagnostics:error.diagnostics}); }
     finally { busy = false; pendingAI=null; }
   });
-  ctx.effect(()=>()=>{port=0;life.abort();server.close();server.closeAllConnections();void launcher?.dispose();characterProcess?.kill();},'live-character: runtime');
-  server.on('error',error=>console.error('[live-character]',error.message));
+  ctx.effect(()=>()=>{port=0;life.abort();resolveBridge(false);server.close();server.closeAllConnections();void launcher?.dispose();characterProcess?.kill();},'live-character: runtime');
+  server.on('error',error=>{startError='角色连接服务不可用 · '+error.message;resolveBridge(false);console.error('[live-character]',error.message);});
   server.listen(0,'127.0.0.1',()=>{
     if (life.signal.aborted) return server.close();
     const env = {...process.env,PET_HOST:String(process.pid),PET_BRIDGE:'http://127.0.0.1:'+server.address().port+'/decide',PET_SECRET:token};
     delete env.ELECTRON_RUN_AS_NODE;
     const launch = (exe,args,cwd=root,extraEnv={}) => {
-      child = spawn(exe,args,{cwd,env:{...env,...extraEnv},windowsHide:true,stdio:'ignore'});
+      const child = spawn(exe,args,{cwd,env:{...env,...extraEnv},windowsHide:true,stdio:'ignore'});
       child.on('error',error=>{startError='角色启动失败 · '+error.message;console.error('[live-character]',error.message);});
       return child;
     };
     const statusFile=path.join(env.LOCALAPPDATA,'LiveCharacter','install-status.json');
     const readStatus=()=>{try{return JSON.parse(fs.readFileSync(statusFile,'utf8'));}catch{return {};}};
     const writeStatus=patch=>{
+      if(patch.phase==='checking')currentRunId=patch.runId;
       try{
         fs.mkdirSync(path.dirname(statusFile),{recursive:true});
         const previous=readStatus();
-        const status={...(previous.runId===patch.runId?previous:{}),...patch,version:'0.12.36',at:new Date().toISOString()};
+        const status={...(previous.runId===patch.runId?previous:{}),...patch,version:pluginVersion,at:new Date().toISOString()};
         fs.writeFileSync(statusFile+'.node.tmp',JSON.stringify(status));fs.renameSync(statusFile+'.node.tmp',statusFile);
       }catch{}
     };
@@ -271,12 +314,10 @@ export function apply(ctx, config={}) {
           if(installerProcess===installer)installerProcess=null;
           if(code===0){
             const status=readStatus();
-            if(status.version==='0.12.36'&&status.runId===runId&&status.phase==='ready'&&typeof status.installed==='boolean')resolve(status);
+            if(status.version===pluginVersion&&status.runId===runId&&status.phase==='ready'&&typeof status.installed==='boolean')resolve(status);
             else reject(Error('运行环境未返回有效完成状态，请重新检测依赖。'));
           }else{
-            const status=readStatus();
-            const message=status.version==='0.12.36'&&status.runId===runId&&typeof status.message==='string'?status.message:(code===2?'依赖安装已取消；自行准备后可重新检测依赖。':'运行环境准备失败，请检查安装提示或复制诊断。');
-            reject(Object.assign(Error(message),{code:code===2?'CANCELLED':'PREPARE_FAILED'}));
+            reject(preparationExitError(code,readStatus(),pluginVersion,runId));
           }
         });
       });
@@ -292,14 +333,24 @@ export function apply(ctx, config={}) {
     };
     const launchElectron=()=>{
       if(life.signal.aborted)return;
-      const release=path.join(env.LOCALAPPDATA,'LiveCharacter','app-0.12.36');
-      characterProcess=launch(path.join(env.LOCALAPPDATA,'LiveCharacter','electron-45.2.3','electron.exe'),[path.join(release,'desktop')],release);
-      characterProcess.once('exit',()=>{port=0;hooks.emit('online',{online:false});});
+      const release=path.join(env.LOCALAPPDATA,'LiveCharacter','app-'+pluginVersion);
+      const child=launch(path.join(env.LOCALAPPDATA,'LiveCharacter','electron-45.2.3','Live Character.exe'),[path.join(release,'desktop')],release);
+      characterProcess=child;
+      const stopped=()=>{
+        if(characterProcess!==child)return;
+        characterProcess=null;
+        port=0;hooks.emit('online',{online:false});
+      };
+      child.once('error',stopped);
+      child.once('exit',code=>{
+        if(!port&&code!==0)startError='角色启动失败 · 桌面进程退出（'+code+'）';
+        stopped();
+      });
     };
     launcher=createRuntimeLauncher({prepare,launchCharacter:launchElectron,cancelPreparation,
       isRunning:()=>!!port||!!(characterProcess&&characterProcess.exitCode===null&&!characterProcess.killed),writeStatus});
-    launchRuntime=cmd=>launcher.launch({runId:cmd?.runId});cancelRuntime=id=>launcher.cancel(id);
+    resolveBridge(true);
     // Explicit opt-in is the only path that may prepare/launch without a button click.
-    if(preferences().autoStart===true)launchRuntime();
+    if(preferences().autoStart===true)launcher.launch();
   });
 }

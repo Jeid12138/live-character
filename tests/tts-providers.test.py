@@ -1,6 +1,8 @@
 """Cloud contracts without spending API credits; exact outgoing requests are inspected."""
 import sys,pathlib,unittest,io,wave,json,base64,urllib.error
 from unittest.mock import patch
+from contextlib import nullcontext
+from email.message import Message
 sys.dont_write_bytecode=True
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]/'lab'))
 import tts_api as t
@@ -13,6 +15,62 @@ def body(provider):
     return {'mode':'api','provider':provider,'endpoint':{'breeze':'https://api.breeze.blue','fish':'https://api.fish.audio/v1/tts','qwen':'https://dashscope.aliyuncs.com'+t.QWEN_PATH,'openai':'https://voice.example/v1/audio/speech'}[provider],
       'model':{'breeze':'breeze-tts-2','fish':'s2-pro','qwen':'qwen3-tts-flash','openai':'custom-model'}[provider],'voice':'voc_test123' if provider=='breeze' else 'Cherry' if provider=='qwen' else 'voice-a','text':'你好','instruction':'略带笑意，语速轻缓','key':'fixture-secret'}
 class Providers(unittest.TestCase):
+    def test_cloud_pcm_contracts(self):
+        class Response:
+            length=0
+            def __init__(self,mime):
+                self.headers=Message()
+                self.headers['Content-Type']=mime
+                self.audio=iter((b'\x01\x02\x03',b'\x04',b''))
+            def read1(self,_):
+                return next(self.audio)
+        for provider,models in {
+            'breeze':('breeze-tts-2','breeze-tts-2-multilingual'),
+            'fish':('s2-pro','s2.1-pro','s2.1-pro-free'),
+        }.items():
+            for model in models:
+                settings={**body(provider),'model':model,'network':'system'}
+                with self.subTest(model=model),patch.object(t,'open_response',return_value=nullcontext(Response('application/octet-stream'))) as upstream:
+                    self.assertEqual(list(companion.synthesize_stream(settings,lambda:False)),[b'\x01\x02',b'\x03\x04'])
+                    url,headers,payload,network=upstream.call_args.args
+                    self.assertEqual(network,'system')
+                    if provider=='breeze':
+                        self.assertTrue(url.endswith('/stream?output_format=pcm'))
+                        self.assertEqual(headers['xi-api-key'],settings['key'])
+                        self.assertEqual(payload['model_id'],model)
+                        self.assertEqual(payload['instructions'],settings['instruction'])
+                    else:
+                        self.assertEqual(headers['model'],model)
+                        self.assertEqual(payload['format'],'pcm')
+                        self.assertEqual(payload['sample_rate'],24000)
+
+    def test_qwen_sse_stream_and_incomplete_response(self):
+        partial=b'id:1\r\ndata: {"output":{"finish_reason":"null","audio":{"data":"AQI="}}}\r\n\r\n'
+        terminal=b'id:2\ndata: {"output":{"finish_reason":"stop","audio":{"url":"http://untrusted.invalid/audio"}}}\n\n'
+        settings={**body('qwen'),'endpoint':'https://dashscope-intl.aliyuncs.com'+t.QWEN_PATH}
+        for close in (terminal,b''):
+            response=io.BytesIO(partial+close)
+            response.headers=Message()
+            response.headers['Content-Type']='text/event-stream; charset=utf-8'
+            with self.subTest(terminal=bool(close)),patch.object(t,'open_response',return_value=nullcontext(response)) as upstream:
+                chunks=companion.synthesize_stream(settings,lambda:False)
+                self.assertEqual(next(chunks),b'\x01\x02')
+                if close:
+                    self.assertEqual(list(chunks),[])
+                    url,headers,_,_=upstream.call_args.args
+                    self.assertEqual(url,settings['endpoint'])
+                    self.assertEqual(headers['X-DashScope-SSE'],'enable')
+                    self.assertEqual(upstream.call_count,1)
+                else:
+                    with self.assertRaises(t.TtsError): next(chunks)
+
+    def test_unsupported_or_cancelled_stream_never_submits(self):
+        with patch.object(t,'open_response') as upstream:
+            self.assertEqual(list(companion.synthesize_stream(body('breeze'),lambda:True)),[])
+            with self.assertRaises(t.TtsError):
+                list(companion.synthesize_stream(body('openai'),lambda:False))
+            upstream.assert_not_called()
+
     def test_breeze_contract(self):
         p,url,h,data=t.build(body('breeze'),'你好')
         self.assertEqual(url,'https://api.breeze.blue/v1/text-to-speech/voc_test123?output_format=wav_24000');self.assertEqual(h['xi-api-key'],'fixture-secret');self.assertNotIn('Authorization',h)

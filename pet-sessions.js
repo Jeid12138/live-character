@@ -20,12 +20,12 @@ export function sessionBridge(ctx,config,options={}){
  const service=()=>ctx.get('sessionController');
  const address=sessionId=>({kind:'session',sessionId});
  const valid=id=>/^session-[a-f0-9-]{36}$/.test(id);
- async function state(id){if(!valid(id))throw Error('会话编号无效');const value=await service().state({sessionId:id});const input=value.pendingInput;return {running:value.running===true,pending:!!value.queue?.length||(Array.isArray(input)?input.length>0:!!input),...(Number.isSafeInteger(value.cursor)?{cursor:value.cursor}:{})};}
+ async function state(id,signal=AbortSignal.timeout(12000)){if(!valid(id))throw Error('会话编号无效');const value=await service().state({sessionId:id},signal);const input=value.pendingInput;return {running:value.running===true,pending:!!value.queue?.length||(Array.isArray(input)?input.length>0:!!input),...(Number.isSafeInteger(value.cursor)?{cursor:value.cursor}:{})};}
  async function cancel(id,eventId){
   if(!id)return {running:false,pending:false};if(!valid(id))throw Error('会话编号无效');
   if(eventId){if(!/^[a-f0-9-]{36}$/i.test(eventId))throw Error('取消事件编号无效');cancelledEvents.add(id+':'+eventId);while(cancelledEvents.size>256)cancelledEvents.delete(cancelledEvents.values().next().value);}
   if(cancelTasks.has(id))return cancelTasks.get(id);const sc=service();if(typeof sc?.cancel!=='function')throw Object.assign(Error('DSH 会话取消服务不可用，未声称已停止'),{code:'LC_CANCEL_UNAVAILABLE'});
-  const task=(async()=>{await sc.cancel({sessionId:id});const result=await state(id);if(eventId&&!result.running&&!result.pending)uncertain.delete(id+':'+eventId);return result;})();cancelTasks.set(id,task);try{return await task;}finally{cancelTasks.delete(id);}
+  const task=(async()=>{const signal=AbortSignal.timeout(12000);await sc.cancel({sessionId:id},signal);const result=await state(id,signal);if(eventId&&!result.running&&!result.pending)uncertain.delete(id+':'+eventId);return result;})();cancelTasks.set(id,task);try{return await task;}finally{cancelTasks.delete(id);}
  }
  async function history(id,limit,signal){
   if(!valid(id))throw Error('会话编号无效');
@@ -36,7 +36,7 @@ export function sessionBridge(ctx,config,options={}){
   }while(hasMore&&rows.length<limit);
   return {rows:rows.slice(-limit),more:hasMore};
  }
- async function chat(payload,signal,selection,attachments=[]){
+ async function chat(payload,signal,selection,attachments=[],screenConsent){
   let step='route',heldId,runtimeToken;
   try{
   const r=payload.route,id=r?.id;if(!valid(id))throw Error('角色会话无效');
@@ -62,6 +62,7 @@ export function sessionBridge(ctx,config,options={}){
   if(titles.get(id)!==r.title){step='rename';await sc.rename({sessionId:id,title:r.title});titles.set(id,r.title);}
   step='state';let before;try{before=await sc.state({sessionId:id},signal);}catch(e){if(e.code==='session/not-found')ready.delete(id);throw e;}if(before.running||before.queue?.length)throw Object.assign(Error('DSH 会话正在回复，自动事件等待空闲后提交'),{code:'SESSION_BUSY',submitted:false});
   step='selectModel';if(selection)await sc.selectModel({sessionId:id,...selection});
+  if(payload.screenAttached&&screenConsent&&!screenConsent()){attachments=[];payload={...payload,screenAttached:false,appearanceEvidence:'metadata'};}
   let eventText=eventEnvelope(payload,cfg.revision);const runtime=runtimeContext(payload);
   let content=[...attachments,{type:'text',text:eventText}];
   if(cancelledEvents.has(key))throw Object.assign(Error('本次事件已取消，未提交生成'),{code:'LC_CANCELLED',submitted:false});
@@ -74,7 +75,7 @@ export function sessionBridge(ctx,config,options={}){
    try{await sc.prompt({sessionId:id,mode:'queue',requestId:eventId,content},signal);}catch(error){
     const knownPreAdmission=error.code==='session/attachment-invalid'&&(error.details?.reason==='MODEL_DOES_NOT_SUPPORT_IMAGES'||error.data?.reason==='MODEL_DOES_NOT_SUPPORT_IMAGES'||error.message==='Model does not support image input');
     if(!attachments.length||!knownPreAdmission)throw error;
-    payload={...payload,appearanceEvidence:'metadata'};eventText=eventEnvelope(payload,cfg.revision);content=content.filter(c=>c.type!=='image').map(c=>c.type==='text'&&readEnvelope(c.text)?{type:'text',text:eventText}:c);deliveredEvidence='metadata';appearanceNote='当前会话模型不支持图片，本轮使用已有资料回应，没有新增视觉认知';
+    payload={...payload,screenAttached:false,appearanceEvidence:'metadata'};eventText=eventEnvelope(payload,cfg.revision);content=content.filter(c=>c.type!=='image').map(c=>c.type==='text'&&readEnvelope(c.text)?{type:'text',text:eventText}:c);deliveredEvidence='metadata';appearanceNote='当前会话模型不支持图片，本轮使用已有资料回应，没有新增视觉认知';
     await sc.prompt({sessionId:id,mode:'queue',requestId:eventId,content},signal);
    }
    if(cancelledEvents.has(key)){const stopped=await cancel(id);throw Object.assign(Error(stopped.running||stopped.pending?'DSH 仍在结束中':'本次事件已取消'),{code:stopped.running||stopped.pending?'LC_CANCEL_PENDING':'LC_CANCELLED'});}

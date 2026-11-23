@@ -10,3 +10,37 @@ test('actual media pause or Stop discards pending actions and resuming audio can
 test('actual non-voice response still uses ordered actions and records the normalized timetable',async()=>{const f=await fixture(false,{duration:4,motion:'wave',actions:[{kind:'motion',name:'nod',at:0,seconds:1.2},{kind:'motion',name:'bow',at:1.2,seconds:1.1}]});try{const {w}=f;let now=100;w.performance.now=()=>now*1000;const deliveries=[],asset=w.petDesktop.asset;w.petDesktop.asset=async(op,value)=>{if(op==='experienceRecord')deliveries.push(value);return asset(op,value);};w.companion.applySettings({autoVoice:false});await w.companion.decide({type:'chat',text:'不朗读时也依次做'});assert.equal(w.actualMotionCalls[0][0],'nod');assert.equal(w.actualMotionCalls.length,1);now=101.2;w.companion.advance(now);assert.equal(w.actualMotionCalls[1][0],'bow');const row=deliveries.find(r=>r.status==='completed');assert.equal(row.reply.performance.actions.length,2);assert.equal(row.reply.performance.actions[1].at,1.2);assert(row.reply.validation.warnings.some(d=>d.code==='legacy-actions-ignored'));}finally{f.dom.window.close();}});
 
 test('actual voice response scales action windows and persists effective timing after audio arrives',async()=>{const f=await fixture(false,{duration:3.3,actions:[{kind:'motion',name:'wave',at:0,seconds:1.2},{kind:'motion',name:'nod',at:1.2,seconds:1.1},{kind:'motion',name:'bow',at:2.3,seconds:1}]});try{const {w}=f;let now=100,requests=0;w.performance.now=()=>now*1000;f.setDuration(9.9);const updates=[],asset=w.petDesktop.asset,fetch=w.fetch;w.petDesktop.asset=async(op,value)=>{if(op==='experiencePerformance')updates.push(value);return asset(op,value);};w.fetch=(url,...args)=>{if(url==='/api/decide')requests++;return fetch(url,...args);};await w.companion.decide({type:'chat',text:'与语音一起演'});const a=w.document.getElementById('speechAudio');a.currentTime=3.6;now=103.6;w.companion.advance(now);a.currentTime=6.9;now=106.9;w.companion.advance(now);assert.deepEqual(Array.from(w.actualMotionCalls,c=>Number((c[1]-100).toFixed(3))),[0,3.6,6.9]);a.currentTime=9.9;now=109.9;a.finished=true;a.playing=false;a.dispatchEvent(new w.Event('ended'));await waitUntil(()=>updates.some(u=>u.performance.phase==='finished'));const p=updates.at(-1).performance;assert(Math.abs(p.scale-3)<1e-8);assert.equal(p.audioDuration,9.9);assert(Math.abs(p.effectiveActionEnd-9.9)<1e-8);assert.equal(p.authoredActions[1].at,1.2);assert.equal(requests,1);assert.equal(JSON.parse(w.companion.lastReply).performance.phase,'finished');}finally{f.dom.window.close();}});
+
+test('speech status stays stopped or completed after a delayed playback report, and stale media events do not hide failures',async()=>{
+ const f=await fixture();
+ try{
+  const {w}=f,$=id=>w.document.getElementById(id),audio=$('speechAudio'),status=$('voiceStatus');
+  const asset=w.petDesktop.asset;
+  let release;
+  w.petDesktop.asset=async(op,value)=>{
+   if(op==='voiceReport'&&value.stage==='playing')await new Promise(resolve=>{release=resolve;});
+   return asset(op,value);
+  };
+  for(const natural of [false,true]){
+   release=null;
+   const trial=$('voiceTest').onclick();
+   await waitUntil(()=>release);
+   assert.match(status.textContent,/^正在播放/);
+   if(natural){
+    audio.currentTime=20;audio.finished=true;audio.playing=false;
+    audio.dispatchEvent(new w.Event('ended'));
+   }else await w.companion.stop();
+   const expected=natural?'朗读已完成':'朗读已停止';
+   assert.equal(status.textContent,expected);
+   release();
+   await trial;
+   assert.equal(status.textContent,expected);
+  }
+  audio.play=async()=>{throw Object.assign(Error('fixture playback failure'),{name:'NotAllowedError'});};
+  await $('voiceTest').onclick();
+  const failure=status.textContent;
+  assert.match(failure,/fixture playback failure/);
+  audio.dispatchEvent(new w.Event('ended'));
+  assert.equal(status.textContent,failure);
+ }finally{f.dom.window.close();}
+});

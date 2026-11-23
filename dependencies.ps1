@@ -34,6 +34,7 @@ function Add-DependencyEvent($id,$action,$detail) {
 }
 function New-DependencyForm($title) {
   $form=New-Object Windows.Forms.Form
+  $form.Icon=[Drawing.Icon]::new((Join-Path $script:depPackageRoot 'desktop/lc.ico'))
   $form.Text=$title;$form.ClientSize=New-Object Drawing.Size(650,355);$form.StartPosition='CenterScreen';$form.Font=New-Object Drawing.Font('Microsoft YaHei UI',10);$form.FormBorderStyle='FixedDialog';$form.MaximizeBox=$false;$form.MinimizeBox=$false;$form.TopMost=$true
   return $form
 }
@@ -108,12 +109,25 @@ function Assert-Runtime($directory,$dependency) {
   if ($dependency.kind -eq 'cubism-core') {return}
   $psi=New-Object Diagnostics.ProcessStartInfo
   $psi.FileName=Join-Path $directory $dependency.executable;$psi.Arguments=$dependency.probe;$psi.WorkingDirectory=$directory;$psi.UseShellExecute=$false;$psi.CreateNoWindow=$true;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
-  if ($dependency.id -eq 'electron') {$psi.EnvironmentVariables['ELECTRON_RUN_AS_NODE']='1'}
   $process=New-Object Diagnostics.Process;$process.StartInfo=$psi
   try {
-    [void]$process.Start()
+    if ($dependency.id -eq 'electron') {
+      # Let Windows inherit the native environment block. .NET Framework's
+      # ProcessStartInfo.EnvironmentVariables rejects case-duplicate proxy keys.
+      $previousNodeMode=$env:ELECTRON_RUN_AS_NODE
+      try {
+        $env:ELECTRON_RUN_AS_NODE='1'
+        [void]$process.Start()
+      } finally {
+        $env:ELECTRON_RUN_AS_NODE=$previousNodeMode
+      }
+    } else {
+      [void]$process.Start()
+    }
+    $stdout=$process.StandardOutput.ReadToEndAsync()
+    $stderr=$process.StandardError.ReadToEndAsync()
     if (!$process.WaitForExit(20000)) {try {$process.Kill()} catch {};throw '运行依赖自检超时'}
-    $output=$process.StandardOutput.ReadToEnd().Trim();$errorText=$process.StandardError.ReadToEnd().Trim()
+    $output=$stdout.GetAwaiter().GetResult().Trim();$errorText=$stderr.GetAwaiter().GetResult().Trim()
     if ($process.ExitCode -ne 0 -or $output -ne $dependency.version) {throw "运行自检失败，期望 $($dependency.version)，实际 $output $errorText"}
   } finally {$process.Dispose()}
 }

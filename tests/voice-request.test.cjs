@@ -1,6 +1,23 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const vaultFactory=require('../desktop/voice-secrets.cjs'),diagFactory=require('../desktop/voice-diagnostics.cjs'),requestFactory=require('../desktop/voice-request.cjs');
 const safe={isEncryptionAvailable:()=>true,getSelectedStorageBackend:()=> 'dpapi',encryptString:s=>Buffer.from(s.split('').reverse().join('')),decryptString:b=>b.toString().split('').reverse().join('')};
+test('native cancellation aborts only the matching transport request',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lc-voice-cancel-')),vault=vaultFactory(dir,safe),diag=diagFactory(dir);
+ const body={provider:'breeze',endpoint:'https://api.breeze.blue',clientRequestId:'request-1'};
+ vault.set(body.provider,body.endpoint,'brz_private_test_key');
+ let signal;
+ const run=requestFactory({vault,diagnostics:diag,isEnabled:()=>true,fetchSynthesis:(sent,cancellation)=>{
+  assert.equal(sent.clientRequestId,undefined);signal=cancellation;
+  return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+ }});
+ try{
+  const first=run(body);
+  assert.equal(run.cancel('stale-id'),false);assert.equal(signal.aborted,false);
+  assert.equal(run.cancel(body.clientRequestId),true);assert.equal(signal.aborted,true);
+  assert.equal((await first).cancelled,true);assert.equal(run.isBusy(),false);
+  assert.equal(diag.snapshot().status.stage,'cancelled');assert.equal(diag.snapshot().lastError,null);
+ }finally{fs.rmSync(dir,{recursive:true,force:true})}
+});
 test('actual native pipeline preserves TLS/401 details, fingerprint, persistent failure and playback result',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lc-voice-request-')),vault=vaultFactory(dir,safe),diag=diagFactory(dir);
  const body={provider:'breeze',endpoint:'https://api.breeze.blue',model:'breeze-tts-2',voice:'voc_private12345',network:'system',text:'private dialogue not for logs'};let mode='tls',calls=0;

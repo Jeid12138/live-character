@@ -6,6 +6,22 @@ import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
+if(!/^\d+\.\d+\.\d+$/.test(pkg.version))throw Error('运行时目录需要三段数字版本号');
+// The bundled DSH client and static lab page run without Node package metadata.
+function stamp(relative, pattern, replacement){
+ const file=path.join(root,relative),before=fs.readFileSync(file,'utf8');
+ if(!pattern.test(before))throw Error('无法同步发布版本：'+relative);
+ const after=before.replace(pattern,replacement);
+ if(after!==before)fs.writeFileSync(file,after);
+}
+stamp('desktop/package.json',/"version": "\d+\.\d+\.\d+"/,'"version": "'+pkg.version+'"');
+stamp('client.js',/const pluginVersion='\d+\.\d+\.\d+';/,"const pluginVersion='"+pkg.version+"';");
+stamp('lab/index.html',/<small id="lcVersion">LIVE2D \/ \d+\.\d+\.\d+<\/small>/,'<small id="lcVersion">LIVE2D / '+pkg.version+'</small>');
+stamp('README.md',/^# Live Character \d+\.\d+\.\d+/,'# Live Character '+pkg.version);
+for(const relative of ['runtime.ps1','dependencies.ps1','release-runtime.ps1']){
+ const bytes=fs.readFileSync(path.join(root,relative));
+ if(!bytes.subarray(0,3).equals(Buffer.from([0xef,0xbb,0xbf])))throw Error('Windows PowerShell 5.1 需要 UTF-8 BOM：'+relative);
+}
 const output=path.join(root,'runtime-code-manifest.json');
 if(!fs.existsSync(output))fs.writeFileSync(output,JSON.stringify({version:pkg.version,files:[]})+'\n');
 const npmCli=process.env.npm_execpath;

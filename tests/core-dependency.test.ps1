@@ -18,7 +18,14 @@ try{
  $payload=Join-Path $root 'sdk';$nested=Join-Path $payload 'SDK-R5/Core';[void][IO.Directory]::CreateDirectory($nested)
  $js=Join-Path $nested 'live2dcubismcore.min.js';[IO.File]::WriteAllText($js,'official Core fixture')
  [IO.File]::WriteAllText((Join-Path $payload 'sample-character.txt'),'must not be installed')
- $zip=Join-Path $root 'official-sdk.zip';Compress-Archive -Path (Join-Path $payload '*') -DestinationPath $zip
+ # Match the official SDK's forward-slash ZIP entry names on Windows PowerShell 5.1.
+ Add-Type -AssemblyName System.IO.Compression,System.IO.Compression.FileSystem
+ $zip=Join-Path $root 'official-sdk.zip'
+ $fixtureArchive=[IO.Compression.ZipFile]::Open($zip,[IO.Compression.ZipArchiveMode]::Create)
+ try {
+  [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($fixtureArchive,$js,'SDK-R5/Core/live2dcubismcore.min.js')
+  [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($fixtureArchive,(Join-Path $payload 'sample-character.txt'),'sample-character.txt')
+ } finally {$fixtureArchive.Dispose()}
  $dep=[pscustomobject]@{id='cubism-core';label='Cubism Core';version='test';kind='cubism-core';directory='core';archivePrefix='SDK-R5/Core';executable='live2dcubismcore.min.js';sha256=(Get-FileHash $zip).Hash;files=@(@{path='live2dcubismcore.min.js';sha256=(Get-FileHash $js).Hash});required=@('live2dcubismcore.min.js');licenseRevision='test-r5'}
  $script:depManifest=[pscustomobject]@{dependencies=@($dep)}
  $issues=@(Get-DependencyIssues);Check ($issues.Count -eq 1 -and $issues[0].detail -match '许可') 'Missing consent did not block readiness'

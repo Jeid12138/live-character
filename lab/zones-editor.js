@@ -71,7 +71,7 @@ window.ZoneEditor={init(H,legacy){
  loaded=true;}
  function refresh(){const sel=$('zoneSelect');sel.replaceChildren();zones.forEach((z,i)=>{const o=document.createElement('option');o.value=i;o.textContent=z.name;sel.append(o)});selected=Math.max(0,Math.min(selected,zones.length-1));sel.value=selected;const z=zones[selected];$('zoneName').value=z?.name||'';$('zoneAnchorStatus').textContent=z?(z.anchor?'绑定：'+z.anchor.id:'尚未绑定，区域不会随部位变形；请点选绑定'):'请新增区域';}
  function begin(){if(window.petAdapting&&!window.petApplyingZones)return;load();if(!loaded){window.alert('请先加载真实模型，再调整触摸区域。');return;}if(editing)return;snapshot=clone(zones);savedPadding=padding;$('zonePadding').value=padding;window.companion?.stop();H.freeze(true);editing=true;returnFocus=document.activeElement;panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');if($('settingsDock'))$('settingsDock').inert=true;document.documentElement.classList.add('zones-modal');panel.hidden=false;refresh();$('zoneClose').focus();}
- function end(save){if(!editing)return;if(save){try{petStore.setItem(storageKey,JSON.stringify(G.validate(zones)));petStore.setItem(storageKey+':padding',String(padding))}catch(e){$('zoneAnchorStatus').textContent='保存失败：'+e.message;return;}}else {zones=snapshot;padding=savedPadding;}editing=false;if($('settingsDock'))$('settingsDock').inert=false;document.documentElement.classList.remove('zones-modal');drag=null;picking=false;panel.hidden=true;panel.removeAttribute('aria-modal');returnFocus?.focus?.();returnFocus=null;H.freeze(false);window.companion?.clearStatus?.();window.dispatchEvent(new Event('pet-zones-changed'));}
+ function end(save){if(!editing)return;finish();if(save){try{petStore.setItem(storageKey,JSON.stringify(G.validate(zones)));petStore.setItem(storageKey+':padding',String(padding))}catch(e){$('zoneAnchorStatus').textContent='保存失败：'+e.message;return;}}else {zones=snapshot;padding=savedPadding;}editing=false;if($('settingsDock'))$('settingsDock').inert=false;document.documentElement.classList.remove('zones-modal');drag=null;picking=false;panel.hidden=true;panel.removeAttribute('aria-modal');returnFocus?.focus?.();returnFocus=null;H.freeze(false);window.companion?.clearStatus?.();window.dispatchEvent(new Event('pet-zones-changed'));}
  $('zonePadding').oninput=()=>{
   const input=$('zonePadding');if(input.value!==''&&Number.isFinite(input.valueAsNumber))padding=Math.max(0,Math.min(120,Math.round(input.valueAsNumber)));
  };
@@ -86,13 +86,22 @@ window.ZoneEditor={init(H,legacy){
  $('zoneDelete').onclick=()=>{zones.splice(selected,1);refresh()};$('zoneReset').onclick=()=>{zones=makeDefault();padding=20;$('zonePadding').value=padding;selected=0;refresh()};
  $('zonePick').onclick=()=>{picking=true;$('zoneAnchorStatus').textContent='请在角色想要跟随的部位点一下；再用下一层网格检查绑定。'};
  $('zoneNextMesh').onclick=()=>{const z=zones[selected];if(!z||!candidates.length)return;const index=candidates.findIndex(m=>m.id===z.anchor?.id),r=rect(z)||z.rect;bind(z,r,candidates[(index+1)%candidates.length].id);refresh()};
- overlay.addEventListener('pointerdown',e=>{if(!editing||e.button!==0)return;e.preventDefault();e.stopPropagation();const p=point(e);if(picking){const z=zones[selected];if(!z)return;candidates=pick(p);if(candidates.length){const r=rect(z)||z.rect;bind(z,r,candidates[0].id);picking=false;refresh()}else $('zoneAnchorStatus').textContent='这里没有找到可见网格，请点在部位内部。';return;}
+ overlay.addEventListener('pointerdown',e=>{if(!editing||drag||e.button!==0)return;e.preventDefault();e.stopPropagation();const p=point(e);if(picking){const z=zones[selected];if(!z)return;candidates=pick(p);if(candidates.length){const r=rect(z)||z.rect;bind(z,r,candidates[0].id);picking=false;refresh()}else $('zoneAnchorStatus').textContent='这里没有找到可见网格，请点在部位内部。';return;}
   const node=e.target.closest('[data-zone]');if(!node)return;selected=+node.dataset.zone;refresh();const z=zones[selected],r=rect(z)||z.rect;drag={id:e.pointerId,start:p,rect:{...r},handle:e.target.dataset.handle||'move'};overlay.setPointerCapture(e.pointerId);
  });
- overlay.addEventListener('pointermove',e=>{if(!drag)return;e.preventDefault();const p=point(e),dx=p.x-drag.start.x,dy=p.y-drag.start.y,r={...drag.rect},h=drag.handle,min=5;if(h==='move'){r.x+=dx;r.y+=dy}else{if(h.includes('e'))r.w=Math.max(min,r.w+dx);if(h.includes('s'))r.h=Math.max(min,r.h+dy);if(h.includes('w')){r.w=Math.max(min,r.w-dx);r.x=drag.rect.x+drag.rect.w-r.w;}if(h.includes('n')){r.h=Math.max(min,r.h-dy);r.y=drag.rect.y+drag.rect.h-r.h;}}const z=zones[selected];if(z.anchor)bind(z,r,z.anchor.id);else z.rect=r;
+ overlay.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;e.preventDefault();const p=point(e),dx=p.x-drag.start.x,dy=p.y-drag.start.y,r={...drag.rect},h=drag.handle,min=5;if(h==='move'){r.x+=dx;r.y+=dy}else{if(h.includes('e'))r.w=Math.max(min,r.w+dx);if(h.includes('s'))r.h=Math.max(min,r.h+dy);if(h.includes('w')){r.w=Math.max(min,r.w-dx);r.x=drag.rect.x+drag.rect.w-r.w;}if(h.includes('n')){r.h=Math.max(min,r.h-dy);r.y=drag.rect.y+drag.rect.h-r.h;}}const z=zones[selected];if(z.anchor)bind(z,r,z.anchor.id);else z.rect=r;
  });
- const finish=()=>{if(drag){const z=zones[selected];if(z&&!z.anchor)autoBind(z);drag=null;refresh()}};overlay.addEventListener('pointerup',finish);overlay.addEventListener('pointercancel',finish);
- function draw(){load();const visible=editing||$('showZones')?.checked;overlay.style.pointerEvents=editing?'auto':'none';const carrier=!visible&&loaded&&padding>0&&document.documentElement.classList.contains('pet-only');
+ const finish=e=>{
+  if(!drag||(e?.pointerId!==undefined&&e.pointerId!==drag.id))return;
+  const {id}=drag,z=zones[selected];
+  drag=null;
+  if(overlay.hasPointerCapture(id))overlay.releasePointerCapture(id);
+  if(z&&!z.anchor)autoBind(z);
+  refresh();
+ };
+ for(const type of ['pointerup','pointercancel','lostpointercapture'])overlay.addEventListener(type,finish);
+ window.addEventListener('blur',finish);
+ function draw(){load();const visible=editing||$('showZones')?.checked;overlay.style.pointerEvents=editing&&picking?'auto':'none';const carrier=!visible&&loaded&&padding>0&&document.documentElement.classList.contains('pet-only');
  if(carrier && performance.now()-lastCarrier<65){requestAnimationFrame(draw);return;}
  if(carrier)lastCarrier=performance.now();
  overlay.replaceChildren();
@@ -101,13 +110,18 @@ window.ZoneEditor={init(H,legacy){
   patch.style.cssText=`position:absolute;pointer-events:none;background:rgba(0,0,0,.004);border-radius:${padding}px;left:${s.x-padding}px;top:${s.y-padding}px;width:${s.w+2*padding}px;height:${s.h+2*padding}px`;
   overlay.append(patch);
  }
- if(visible&&loaded){zones.forEach((z,i)=>{const r=rect(z);if(!r)return;const s=stageRect(r),box=document.createElement('div');box.dataset.zone=i;box.className='touch-zone'+(i===selected&&editing?' selected':'');box.style.cssText=`left:${s.x}px;top:${s.y}px;width:${s.w}px;height:${s.h}px;`;box.textContent=z.name+(z.anchor?'':' · 未绑定');if(padding && (!editing||i===selected)){const halo=document.createElement('i');halo.className='hit-margin';halo.style.setProperty('--pad',padding+'px');box.append(halo);}
+ if(visible&&loaded){zones.forEach((z,i)=>{const r=rect(z);if(!r)return;const s=stageRect(r),box=document.createElement('div');box.dataset.zone=i;box.className='touch-zone'+(i===selected&&editing?' selected':'');box.style.cssText=`left:${s.x}px;top:${s.y}px;width:${s.w}px;height:${s.h}px;pointer-events:${editing?'auto':'none'}`;box.textContent=z.name+(z.anchor?'':' · 未绑定');if(padding && (!editing||i===selected)){const halo=document.createElement('i');halo.className='hit-margin';halo.style.setProperty('--pad',padding+'px');box.append(halo);}
  if(editing&&i===selected)for(const handle of ['nw','n','ne','e','se','s','sw','w']){const dot=document.createElement('i');dot.dataset.handle=handle;dot.className='zone-handle '+handle;box.append(dot)}overlay.append(box)});
  if(editing){const z=zones[selected],b=z?.anchor?G.bounds(mesh(z.anchor.id)?.vertices):null;if(b){const s=stageRect(b),line=document.createElement('div');line.className='zone-anchor';line.style.cssText=`left:${s.x}px;top:${s.y}px;width:${s.w}px;height:${s.h}px;`;overlay.append(line)}}}
  requestAnimationFrame(draw);}
  requestAnimationFrame(draw);
  return {begin,end,requestClose,applyDraft(values){zones=G.validate(values);refresh();if(!editing){petStore.setItem(storageKey,JSON.stringify(zones));}},exportSettings(){load();return {signature:storageKey,zones:clone(zones),padding};},
- importSettings(data){load();zones=G.validate(data.zones);padding=data.padding;petStore.setItem(storageKey,JSON.stringify(zones));petStore.setItem(storageKey+':padding',String(padding));refresh();},get editing(){return editing},get zones(){return zones},hit(x,y){load();if(!loaded||editing)return null;const p=H.stageToModel(x,y),unit=H.stageToModel(x+1,y);
+ importSettings(data){load();zones=G.validate(data.zones);padding=data.padding;petStore.setItem(storageKey,JSON.stringify(zones));petStore.setItem(storageKey+':padding',String(padding));refresh();},get editing(){return editing},get dragging(){return drag!==null},get zones(){return zones},
+ pointerTarget(target,x,y){
+  if(!editing||!target||!overlay.contains(target))return false;
+  return Boolean(target.closest('[data-zone]')||picking&&pick(H.stageToModel(x,y)).length);
+ },
+ hit(x,y){load();if(!loaded||editing)return null;const p=H.stageToModel(x,y),unit=H.stageToModel(x+1,y);
  const tolerance=padding*Math.hypot(unit.x-p.x,unit.y-p.y);
  let best=null,bestDistance=Infinity;
  for(const zone of zones){

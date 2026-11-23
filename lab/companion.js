@@ -1,7 +1,7 @@
 'use strict';
 (()=>{
 const C=CompanionCore,H=window.companionHost,el=id=>document.getElementById(id);
-const defaults={persona:'你是陪伴用户进行 AI 制作和写作的桌面伙伴。性格温柔、好奇，有自己的情绪表达。结合近期互动自主选择回应，不机械重复。用户工作时适当降低主动行为频率，空闲时稍活跃。',mode:'local',endpoint:'http://127.0.0.1:61945/decide',model:'',reasonMode:'auto',reasonCap:'high',auto:true,touchAI:true,touchDebounceMs:250,interval:180,quiet:2,swapButtons:false,budget:12,speakChance:.3,voiceNetwork:'direct',voiceProvider:'breeze',voiceApiUrl:'https://api.breeze.blue',voiceApiModel:'breeze-tts-2',voiceProfiles:{},tts:'http://127.0.0.1:61946/synthesize',voice:'',referenceText:'',breezeEndpoint:'http://127.0.0.1:7860/v1/audio/speech',breezeInstruction:'',autoVoice:false,voiceGuidance:2.5,lipGain:1,lipOffset:0};
+const defaults={persona:'',mode:'local',endpoint:'http://127.0.0.1:61945/decide',model:'',reasonMode:'auto',reasonCap:'high',auto:true,touchAI:true,touchDebounceMs:250,interval:180,quiet:2,swapButtons:false,budget:12,speakChance:.3,voiceNetwork:'direct',voiceProvider:'breeze',voiceApiUrl:'https://api.breeze.blue',voiceApiModel:'breeze-tts-2',voiceProfiles:{},tts:'http://127.0.0.1:61946/synthesize',voice:'',referenceText:'',breezeEndpoint:'http://127.0.0.1:7860/v1/audio/speech',breezeInstruction:'',autoVoice:false,voiceGuidance:2.5,lipGain:1,lipOffset:0};
 let playback={volume:.8,muted:false},playbackRevision=0,audioPCM=null,pendingSpeechText='',lastVoiceRefresh=-Infinity;
 let preparingModelChange=false,generationPending=null,cancelPending=null,hostStopping=false;const userCancellations=new Map();let visualPerformance=null;
 let appearance={current:null,events:[],lastEventId:null};try{appearance={...appearance,...JSON.parse(petStore.getItem('appearance-memory-v1')||'{}')}}catch{}
@@ -78,15 +78,22 @@ setInterval(revealBubble,35);
 function safeBubble(...args){let layout='';const warning=present(()=>{layout=bubble(...args)||'';},'气泡显示失败');return warning||layout;}
 window.refreshBubbleTiming=timeBubble;
 function panel(id,title,html){const d=document.createElement('section');d.id=id;d.hidden=true;d.className='companion-dialog';d.setAttribute('role','dialog');d.setAttribute('aria-label',title);d.innerHTML='<button class="close" aria-label="关闭">关闭</button><h2>'+title+'</h2>'+html;d.querySelector('.close').onclick=()=>d.hidden=true;document.body.append(d);return d;}
-panel('chatPanel','与她聊聊',`<div id="chatHistory" class="companion-log" aria-live="polite"></div><form id="chatForm"><textarea id="chatText" maxlength="2000" placeholder="这里的内容会发送到已配置的 AI 服务。Enter 发送，Shift+Enter 换行。"></textarea><div class="actions"><button type="submit">发送</button><button type="button" id="cancelReply">停止回复与朗读</button><button type="button" id="popChat">独立窗口</button><button type="button" id="clearChat">清空对话与情绪</button></div></form><p class="muted">对话保存在本浏览器，最多保留最近 16 条用于上下文。停止会忽略迟到回复；已提交给服务的请求可能仍计费。</p>`);
-panel('companionPanel','陪伴与连接',`<label>性格卡<textarea id="persona" maxlength="5000"></textarea></label><label>DSH 模型<select id="petModel"><option value="">跟随 DSH 会话所选模型</option><option>deepseek-flash</option><option>deepseek-v4-pro</option></select></label><small id="sessionModelHint">选择“跟随 DSH”时，互动使用会话当前模型与推理设置；指定模型才启用 LC 推理上限。AI 适配作业仍使用插件默认或指定模型。</small><label>推理档位<select id="reasonMode"><option value="auto">自适应</option><option value="off">关闭思考</option><option>low</option><option>high</option><option>max</option></select></label><label>自适应最高档位<select id="reasonCap"><option value="off">关闭思考</option><option>low</option><option selected>high</option><option>max</option></select></label><p>触摸、主动演出关闭思考；日常对话 low；分析或长请求 high；明确要求深入推演时可用 max。按模型能力和上限降档。</p><label><input id="autonomy" type="checkbox"> 允许自主陪伴调用 AI</label><label><input id="touchAI" type="checkbox"> 触摸互动交给 AI</label><label>触摸合并间隔（防抖，毫秒）<input id="touchDebounceMs" type="number" min="50" max="5000" step="1"></label><p class="muted">默认 250ms。连续操作间隔不超过此值会合并；长按和滑动松开后开始计时。调用 AI 会消耗模型 tokens。</p><label>基础决策间隔（秒，30–900）<input id="decisionInterval" type="number" min="30" max="900"></label><label>专注模式下，自主演出间隔倍数（1.2–5）<input id="quietFactor" type="number" min="1.2" max="5" step=".1"></label><label>每小时自动调用上限（含触摸，0 表示禁用自动调用）<input id="autoBudget" type="number" min="0" max="120"></label><label>触摸回应说话倾向（0 偏动作–1 偏台词）<input id="speechChance" type="range" min="0" max="1" step=".1"></label><div class="actions"><button id="saveCompanion">保存设置</button><button id="tryDecision">请求一次演出（会调用 AI）</button></div><p id="connectionStatus" class="companion-status">未连接；保存设置不会发起请求。</p><p id="usageStatus" class="companion-status"></p><label>角色鼠标操作<select id="mouseButtons"><option value="normal">左键抚摸 · 右键拖动或轻点菜单</option><option value="swap">右键抚摸 · 左键拖动或轻点菜单</option></select></label><details><summary>触摸区域校准</summary><label><input id="showZones" type="checkbox"> 显示互动区域</label><button id="editZones">进入区域调整模式</button><button id="adaptTouch">AI 触摸适配</button><small class="token-note">调用 AI 会消耗模型 tokens</small><p class="muted">进入后冻结角色，通过鼠标拖动蓝框与边缘手柄调整。区域绑定到部位网格，随网格位置和尺寸移动。矩形不是像素轮廓；必要时点选重新绑定。</p></details>`);
-panel('voicePanel','本地语音与多嘴型',`<p class="muted">连接本地语音适配器；需要它实际支持音色克隆。仅有音频时不会伪造 AIUEO。可导入口型时间轴测试。</p><label>语音来源<select id="voiceMode"><option value="local">通用本地模型服务</option><option value="breeze">本地 Breeze TTS2</option><option value="api">云端语音 API</option></select></label><label>语音服务商 <button id="voiceProviderHelp" type="button" class="voice-help" aria-label="语音服务说明" aria-describedby="voiceProviderTip">!</button><span id="voiceProviderTip" popover="auto" class="voice-help-tip" role="tooltip"></span><select id="voiceProvider"></select></label><label>百炼地域<select id="voiceRegion"><option value="cn">北京</option><option value="sg">新加坡</option></select></label><label>API 地址<input id="voiceApiUrl" placeholder="https://…"></label><label>语音网络<select id="voiceNetwork"><option value="direct">直连（默认，不继承代理）</option><option value="system">使用系统代理（遵循 NO_PROXY）</option></select></label><label>API 模型<select id="voiceApiModel"></select></label><label>自定义模型 ID<input id="voiceCustomModel"></label><label><span id="voiceKeyLabel">API Key（本机加密长期保存）</span><input id="voiceApiKey" type="password" autocomplete="off" placeholder="留空保留已有密钥"></label><small id="voiceKeyInputInfo"></small><small id="voiceKeyWarning" data-level="warning" style="color:#9a6700" hidden></small><small id="voiceKeyStatus">尚未保存密钥</small><small id="voiceAuthStatus">保存不联网；测试连接仅验证认证，试播可能产生语音费用。</small><button id="clearVoiceKey">删除此服务的已保存密钥</button><small id="voiceReadyHint"></small><small>使用语音 API 时，朗读文字会发送至所填服务，可能产生费用。</small><label>本地合成接口<input id="ttsEndpoint"></label><label>Breeze 完整接口地址<input id="breezeEndpoint" placeholder="http://127.0.0.1:7860/v1/audio/speech"></label><label><span id="breezeInstructionLabel">固定演绎约束（可选）</span><textarea id="breezeInstruction" maxlength="2000" placeholder="无参考音频时描述音色；有参考时可留空，或填写语气与节奏。"></textarea></label><small id="breezeHelp">先启动本地 Breeze 服务。上传参考 WAV 并填写准确文字稿，或只填音色描述。参考音频仅本次角色页面有效。本地合成不额外调用 DeepSeek。</small><label><span id="voiceIdLabel">音色 ID</span><input id="voiceId"></label><small id="localEngineHelp" hidden>IndexTTS、AuK 等本地引擎请通过通用本地模型服务连接；本版没有安装或后台启动这些引擎。</small><label>克隆参考音频（本次会话，≤8MB）<input id="referenceFile" type="file" accept="audio/*"></label><label>参考音频对应文本<textarea id="referenceText"></textarea></label><label><input id="autoVoice" type="checkbox"> AI 回复后自动朗读</label><div class="actions"><button id="saveVoice">保存语音设置</button><button id="verifyVoiceKey" hidden>测试连接</button><button id="speakLast">朗读最近回复</button><button id="voiceTest">语音试播</button><button id="clearReference">清除参考音频</button></div><div id="voiceErrorPanel" hidden><strong>最近一次语音失败</strong><pre id="voiceLastError" data-level="error" style="white-space:pre-wrap;overflow-wrap:anywhere;color:#b42318"></pre><button id="clearVoiceError">清除语音错误记录</button></div><hr><details><summary>口型校准（可选）</summary><p>选择同一句台词的录音和元音时间轴，检查嘴型与声音是否同步。时间单位为秒，A、I、U、E、O 的权重为 0 到 1。</p><label>导入测试音频（≤16MB）<input id="testAudio" type="file" accept="audio/*"></label><label>导入口型时间轴 JSON<input id="visemeFile" type="file" accept=".json"></label><audio id="speechAudio" controls></audio><button id="playCalibration">播放测试音频</button><button id="pauseCalibration">暂停</button></details><label>演绎指令强度（Breeze，1–10）<input id="voiceGuidance" type="number" min="1" max="10" step="0.5" value="2.5"></label><small id="lipAnalysisStatus">音频驱动口型：优先使用返回的时间轴，否则使用频谱近似分析；不等同于逐音素识别。</small><label>嘴型强度<input id="lipGain" type="range" min="0" max="1.5" step=".05"></label><label>口型时间偏移（秒；正值提前）<input id="lipOffset" type="number" min="-2" max="2" step=".01"></label><div id="vowelPreview" class="actions"></div><p id="voiceStatus" class="companion-status">未加载语音。时间轴与音频共用播放时钟。</p>`);
+panel('chatPanel','与她聊聊',`<div id="chatHistory" class="companion-log" aria-live="polite"></div><form id="chatForm"><textarea id="chatText" maxlength="2000" placeholder="这里的内容会发送到已配置的 AI 服务。Enter 发送，Shift+Enter 换行。"></textarea><div class="actions"><button type="submit">发送</button><button type="button" id="cancelReply">停止回复与朗读</button><button type="button" id="popChat">独立窗口</button><button type="button" id="clearChat">清空对话与情绪</button></div></form><p class="muted">对话保存在本浏览器，最多保留最近 16 条用于上下文。停止会忽略迟到回复；已提交的请求可能继续执行。</p>`);
+panel('companionPanel','陪伴与连接',`<label>性格卡<textarea id="persona" maxlength="5000"></textarea></label><label>DSH 模型<select id="petModel"><option value="">跟随 DSH 会话所选模型</option><option>deepseek-flash</option><option>deepseek-v4-pro</option></select></label><small id="sessionModelHint">选择“跟随 DSH”时，互动使用会话当前模型与推理设置；指定模型才启用 LC 推理上限。AI 适配作业仍使用插件默认或指定模型。</small><label>推理档位<select id="reasonMode"><option value="auto">自适应</option><option value="off">关闭思考</option><option>low</option><option>high</option><option>max</option></select></label><label>自适应最高档位<select id="reasonCap"><option value="off">关闭思考</option><option>low</option><option selected>high</option><option>max</option></select></label><p>触摸、主动演出关闭思考；日常对话 low；分析或长请求 high；明确要求深入推演时可用 max。按模型能力和上限降档。</p><label><input id="autonomy" type="checkbox"> 允许自主陪伴调用 AI</label><label><input id="touchAI" type="checkbox"> 触摸互动交给 AI</label><label>触摸合并间隔（防抖，毫秒）<input id="touchDebounceMs" type="number" min="50" max="5000" step="1"></label><p class="muted">默认 250ms。连续操作间隔不超过此值会合并；长按和滑动松开后开始计时。</p><label>基础决策间隔（秒，30–900）<input id="decisionInterval" type="number" min="30" max="900"></label><label>专注模式下，自主演出间隔倍数（1.2–5）<input id="quietFactor" type="number" min="1.2" max="5" step=".1"></label><label>每小时自动调用上限（含触摸，0 表示禁用自动调用）<input id="autoBudget" type="number" min="0" max="120"></label><label>触摸回应说话倾向（0 偏动作–1 偏台词）<input id="speechChance" type="range" min="0" max="1" step=".1"></label><div class="actions"><button id="saveCompanion">保存设置</button><button id="tryDecision">请求一次演出</button><small class="token-note">调用 AI 会消耗模型 tokens</small></div><p id="connectionStatus" class="companion-status">未连接；保存设置不会发起请求。</p><p id="usageStatus" class="companion-status"></p><label>角色鼠标操作<select id="mouseButtons"><option value="normal">左键抚摸 · 右键拖动或轻点菜单</option><option value="swap">右键抚摸 · 左键拖动或轻点菜单</option></select></label><details><summary>触摸区域校准</summary><label><input id="showZones" type="checkbox"> 显示互动区域</label><div class="actions"><button id="editZones">进入区域调整模式</button><button id="adaptTouch">AI 触摸适配</button></div><small class="token-note">调用 AI 会消耗模型 tokens</small><p class="muted">进入后冻结角色，通过鼠标拖动蓝框与边缘手柄调整。区域绑定到部位网格，随网格位置和尺寸移动。矩形不是像素轮廓；必要时点选重新绑定。</p></details>`);
+panel('voicePanel','本地语音与多嘴型',`<label>语音来源<select id="voiceMode"><option value="local">本地模型</option><option value="api">云端语音 API</option></select></label><label>运行方式<select id="localEngine"><option value="managed">后台运行</option><option value="service">已有本地服务</option></select></label><label>服务协议<select id="voiceLocalProtocol"><option value="local">通用适配器</option><option value="breeze">Breeze TTS2</option></select></label><div id="managedVoiceSetup" hidden><label>选择模型<select id="managedVoiceModel"></select></label><label id="managedStreamingRow" hidden><input id="managedVoiceStreaming" type="checkbox"> 开启流式响应</label><div class="actions"><button id="openVoiceModels">模型位置</button><button id="refreshVoiceModels">刷新列表</button><button id="prepareLocalVoice">环境配置</button><button id="pickVoiceEnvironment">选择已有环境</button></div><p id="managedVoiceStatus" role="status"></p></div><label>语音服务商 <button id="voiceProviderHelp" type="button" class="voice-help" aria-label="语音服务说明" aria-describedby="voiceProviderTip">!</button><span id="voiceProviderTip" popover="auto" class="voice-help-tip" role="tooltip"></span><select id="voiceProvider"></select></label><label>百炼地域<select id="voiceRegion"><option value="cn">北京</option><option value="sg">新加坡</option></select></label><label>API 地址<input id="voiceApiUrl" placeholder="https://…"></label><label>语音网络<select id="voiceNetwork"><option value="direct">直连（默认，不继承代理）</option><option value="system">使用系统代理（遵循 NO_PROXY）</option></select></label><label>API 模型<select id="voiceApiModel"></select></label><label id="apiStreamingRow" hidden><input id="apiVoiceStreaming" type="checkbox"> 开启流式响应</label><label>自定义模型 ID<input id="voiceCustomModel"></label><label><span id="voiceKeyLabel">API Key（本机加密长期保存）</span><input id="voiceApiKey" type="password" autocomplete="off" placeholder="留空保留已有密钥"></label><small id="voiceKeyInputInfo"></small><small id="voiceKeyWarning" data-level="warning" style="color:#9a6700" hidden></small><small id="voiceKeyStatus">尚未保存密钥</small><small id="voiceAuthStatus">保存不联网；测试连接仅验证认证，试播可能产生语音费用。</small><button id="clearVoiceKey">删除此服务的已保存密钥</button><small id="voiceReadyHint"></small><small id="cloudVoiceCost">使用语音 API 时，朗读文字会发送至所填服务，可能产生费用。</small><label>本地合成接口<input id="ttsEndpoint"></label><label>Breeze 完整接口地址<input id="breezeEndpoint" placeholder="http://127.0.0.1:7860/v1/audio/speech"></label><label id="serviceStreamingRow" hidden><input id="serviceVoiceStreaming" type="checkbox"> 开启流式响应</label><label><span id="breezeInstructionLabel">固定演绎约束（可选）</span><textarea id="breezeInstruction" maxlength="2000" placeholder="无参考音频时描述音色；有参考时可留空，或填写语气与节奏。"></textarea></label><small id="breezeHelp">先启动本地 Breeze 服务。上传参考 WAV 并填写准确文字稿，或只填音色描述。参考音频仅本次角色页面有效。本地合成不额外调用 DeepSeek。</small><label><span id="voiceIdLabel">音色 ID</span><input id="voiceId"></label><small id="localEngineHelp" hidden>IndexTTS、AuK 等本地引擎请通过通用本地模型服务连接；本版没有安装或后台启动这些引擎。</small><label id="voiceStyleRow">声音方式<select id="voiceStyle"><option value="normal">描述音色</option><option value="clone">克隆音色</option></select></label><p id="referenceSelectionSummary" role="status" hidden></p><div id="referenceLibrary"><label>参考音频<select id="voiceReferenceChoice"></select></label><div class="actions"><button id="openVoiceReferences">参考音频目录</button><button id="refreshVoiceReferences">刷新参考音频</button></div></div><input id="referenceFile" type="file" accept="audio/*" hidden><label id="referenceAIRow"><input id="referenceAI" type="checkbox"> AI 识别文字稿<small class="token-note">识别会发送参考录音并消耗模型 tokens。</small></label><label><span>参考音频文字稿</span><span style="float:right;color:#888" data-ui="transcript-help"><span data-help-text="该模型需要提供克隆音频的准确文字稿提升生成效果" title="该模型需要提供克隆音频的准确文字稿提升生成效果" tabindex="0" aria-label="该模型需要提供克隆音频的准确文字稿提升生成效果">!</span></span><textarea id="referenceText"></textarea></label><label><input id="autoVoice" type="checkbox"> AI 回复后自动朗读</label><div><label id="voiceCudaGraphRow"><input id="voiceCudaGraph" type="checkbox" aria-describedby="voiceCudaGraphTip"> CUDA加速解码 <span id="voiceCudaGraphTip" class="cuda-graph-tip" tabindex="0" data-help-text="开启CUDA加速将消耗额外显存占用" title="开启CUDA加速将消耗额外显存占用" aria-label="开启CUDA加速将消耗额外显存占用">!</span></label><label id="idleVramOptimizationRow"><input id="idleVramOptimization" type="checkbox" aria-describedby="idleVramOptimizationTip"> 闲时显存优化 <span id="idleVramOptimizationTip" class="cuda-graph-tip" tabindex="0" data-help-text="保留已加载的语音进程，减少空闲显存占用。恢复本地朗读时，首句可能稍慢。" title="保留已加载的语音进程，减少空闲显存占用。恢复本地朗读时，首句可能稍慢。" aria-label="保留已加载的语音进程，减少空闲显存占用。恢复本地朗读时，首句可能稍慢。">!</span></label></div><div class="actions"><button id="saveVoice">保存语音设置</button><button id="verifyVoiceKey" hidden>测试连接</button><button id="speakLast">朗读最近回复</button><button id="voiceTest">语音试播</button><button id="clearReference">清除参考音频</button></div><div id="voiceErrorPanel" hidden><strong>最近一次语音失败</strong><pre id="voiceLastError" data-level="error" style="white-space:pre-wrap;overflow-wrap:anywhere;color:#b42318"></pre><button id="clearVoiceError">清除语音错误记录</button></div><hr><details><summary>口型校准（可选）</summary><p>选择同一句台词的录音和元音时间轴，检查嘴型与声音是否同步。时间单位为秒，A、I、U、E、O 的权重为 0 到 1。</p><label>导入测试音频（≤16MB）<input id="testAudio" type="file" accept="audio/*"></label><label>导入口型时间轴 JSON<input id="visemeFile" type="file" accept=".json"></label><audio id="speechAudio" controls></audio><div class="actions"><button id="playCalibration">播放测试音频</button><button id="pauseCalibration">暂停</button></div></details><label>演绎指令强度（Breeze，1–10）<input id="voiceGuidance" type="number" min="1" max="10" step="0.5" value="2.5"></label><small id="lipAnalysisStatus">音频驱动口型：优先使用返回的时间轴，否则使用频谱近似分析；不等同于逐音素识别。</small><label>嘴型强度<input id="lipGain" type="range" min="0" max="1.5" step=".05"></label><label>口型时间偏移（秒；正值提前）<input id="lipOffset" type="number" min="-2" max="2" step=".01"></label><div id="vowelPreview" class="actions"></div><p id="voiceStatus" class="companion-status">未加载语音。时间轴与音频共用播放时钟。</p>`);
 const voiceCatalog=window.LCVoiceCatalog||{openai:{name:'OpenAI 兼容协议',endpoint:'',models:[],help:''}};
 for(const [id,item] of Object.entries(voiceCatalog)){if(item.kind==='local')continue;const option=document.createElement('option');option.value=id;option.textContent=item.name;el('voiceProvider').append(option);}
 if(voiceCatalog[config.voiceProvider]?.kind==='local'){const o=document.createElement('option');o.value=config.voiceProvider;o.textContent=voiceCatalog[config.voiceProvider].name+'（旧配置，需改选本地来源）';el('voiceProvider').append(o);}
-const voiceAdvanced=document.createElement('details');voiceAdvanced.id='voiceAdvanced';voiceAdvanced.innerHTML='<summary>高级语音设置</summary>';el('voiceId').parentElement.after(voiceAdvanced);for(const id of ['voiceApiUrl','voiceNetwork','breezeInstruction','voiceGuidance'])voiceAdvanced.append(el(id).parentElement);
-const voiceComparisonFields=['voiceMode','voiceProvider','voiceApiUrl','voiceApiModel','voiceNetwork','breezeEndpoint','breezeInstruction','tts','voice','referenceText','autoVoice','voiceGuidance','lipGain','lipOffset'];
-const voiceDrafts={...config.voiceProfiles};let shownProvider=config.voiceProvider||'openai',credentialScope='',keyStatusEpoch=0,voiceDiagnosticEpoch=0,lastVoiceCredential=null,voiceSaveFailed=false,speechBusy=false,voiceActionBusy=false;
+const voiceAdvanced=document.createElement('details');voiceAdvanced.id='voiceAdvanced';voiceAdvanced.innerHTML='<summary>高级语音设置</summary>';el('voiceId').parentElement.after(voiceAdvanced);for(const id of ['voiceApiUrl','voiceNetwork','voiceGuidance'])voiceAdvanced.append(el(id).parentElement);
+const voiceDescription=el('breezeInstruction');
+el('voiceStyleRow').after(voiceDescription.parentElement);
+el('breezeInstructionLabel').textContent='音色描述';
+voiceDescription.placeholder='例如：温暖清亮的年轻女声';
+const voiceComparisonFields=['voiceStyle','managedVoiceModel','voiceMode','voiceProvider','voiceApiUrl','voiceApiModel','voiceNetwork','breezeEndpoint','breezeInstruction','tts','voice','referenceText','autoVoice','voiceStreaming','voiceCudaGraph','idleVramOptimization','voiceGuidance','lipGain','lipOffset'];
+let localVoiceProfile={voice:'',instruction:''},editingCloud=false;
+let referenceLoad=0,referenceReading=0,referenceRecognition=null,savedReference=null;
+let restoringReference=null;
+const voiceDrafts={...config.voiceProfiles};let voiceRequest=null,streamPlayback=null,shownProvider=config.voiceProvider||'openai',credentialScope='',keyStatusEpoch=0,voiceDiagnosticEpoch=0,lastVoiceCredential=null,voiceSaveFailed=false,speechBusy=false,voiceActionBusy=false;
 function updateVoiceKeyInputInfo(){
  const raw=el('voiceApiKey').value,key=raw.trim(),breeze=el('voiceProvider').value==='breeze';
  el('voiceKeyInputInfo').textContent=raw?'本次输入 '+Array.from(raw).length+' 个字符 · 尚未保存':'本次输入框为空，将使用此服务已保存的密钥';
@@ -105,12 +112,280 @@ function populateVoice(profile){
  clearVoiceInput();shownProvider=provider;voiceModeUI();
 }
 async function refreshVoiceKey(){
+ if(selectedVoiceMode()!=='api')return;
  const n=++keyStatusEpoch,provider=el('voiceProvider').value,endpoint=el('voiceApiUrl').value.trim();
  if(voiceCatalog[provider]?.unavailable){lastVoiceCredential=null;el('voiceKeyStatus').textContent='此引擎请改选通用本地模型服务';updateVoiceActions();return;}
- try{const r=await window.petDesktop?.asset?.('voiceCredential',{action:'status',provider,endpoint});if(n!==keyStatusEpoch)return;lastVoiceCredential=r||null;el('voiceKeyStatus').textContent=r?.saved?'已加密保存 · 重启后仍可使用'+(r.hint?' · '+r.hint:'')+(r.fingerprint?' · '+r.fingerprint:'')+(r.savedAt?' · 保存于 '+new Date(r.savedAt).toLocaleString():' · 旧版保存时间未知')+(r.authState==='accepted'?' · 上次认证通过 '+new Date(r.verifiedAt).toLocaleString():r.authState==='rejected'?' · 上次认证未通过':' · 尚未验证'):r?.encrypted?'尚未保存此服务的密钥':'请在桌面角色运行后保存；需要系统加密存储';}
- catch(error){if(n===keyStatusEpoch){lastVoiceCredential=null;el('voiceKeyStatus').textContent=error.message;}}finally{updateVoiceActions();}
+ try{const r=await window.petDesktop?.asset?.('voiceCredential',{action:'status',provider,endpoint});if(n!==keyStatusEpoch||!window.document)return;lastVoiceCredential=r||null;el('voiceKeyStatus').textContent=r?.saved?'已加密保存 · 重启后仍可使用'+(r.hint?' · '+r.hint:'')+(r.fingerprint?' · '+r.fingerprint:'')+(r.savedAt?' · 保存于 '+new Date(r.savedAt).toLocaleString():' · 旧版保存时间未知')+(r.authState==='accepted'?' · 上次认证通过 '+new Date(r.verifiedAt).toLocaleString():r.authState==='rejected'?' · 上次认证未通过':' · 尚未验证'):r?.encrypted?'尚未保存此服务的密钥':'请在桌面角色运行后保存；需要系统加密存储';}
+ catch(error){if(n===keyStatusEpoch&&window.document){lastVoiceCredential=null;el('voiceKeyStatus').textContent=error.message;}}finally{if(window.document&&n===keyStatusEpoch)updateVoiceActions();}
 }
-function voiceModeUI(){const mode=el('voiceMode').value,api=mode==='api',breeze=mode==='breeze',provider=el('voiceProvider').value,item=voiceCatalog[provider]||{};
+let managedModels=[],managedModelId='',managedEpoch=0,voiceInstallLocked=false;
+let proposedVoiceModel=null,checkedVoiceModel='',checkedVoiceReady=false,checkedVoiceState=null,pickingVoiceEnvironment=false;
+const uploadReference=':upload:';
+function syncVoiceOptions(field,choices,selected=field.value){
+ const existing=new Map([...field.options].map(option=>[option.value,option]));
+ for(const [index,[value,label]] of choices.entries()){
+  const option=existing.get(value)||new Option(label,value);
+  if(option.text!==label)option.text=label;
+  if(field.options[index]!==option)field.insertBefore(option,field.options[index]||null);
+  existing.delete(value);
+ }
+ for(const option of existing.values())option.remove();
+ const next=choices.some(([value])=>value===selected)?selected:'';
+ if(field.value!==next)field.value=next;
+}
+const voiceInstallDialog=document.createElement('dialog');
+voiceInstallDialog.innerHTML='<h3>配置本地语音环境</h3><p id="voiceInstallSummary"></p><label>下载来源<select id="voiceDownloadSource"><option value="official">官方源</option><option value="china">中国镜像源</option></select></label><small>中国镜像：Python 包使用清华，分词器和编解码器使用 HF-Mirror。独立 Python、PyTorch CUDA 和推理代码暂无已核实镜像，仍使用官方源。</small><button id="recheckVoiceEnvironment">重新检测</button><button id="chooseVoiceEnvironment">选择已有环境</button><button id="confirmVoiceInstall">补齐缺件</button><button id="cancelVoiceInstall">取消</button>';
+document.body.append(voiceInstallDialog);
+voiceInstallDialog.addEventListener('cancel',event=>{if(voiceInstallLocked)event.preventDefault();});
+function managedModel(){return managedModels.find(model=>model.id===managedModelId);}
+let featureVoiceKey=null;
+const wholeVoiceServices=new Set();
+try{
+ const stored=JSON.parse(petStore.getItem('companion-whole-voice-services')||'[]');
+ for(const endpoint of stored)if(typeof endpoint==='string'&&endpoint)wholeVoiceServices.add(endpoint);
+}catch{}
+function rememberWholeVoiceService(endpoint){
+ if(!endpoint)return;
+ wholeVoiceServices.add(endpoint);
+ try{petStore.setItem('companion-whole-voice-services',JSON.stringify([...wholeVoiceServices]));}catch{}
+ syncVoiceFeatures();
+ updateVoiceActions();
+}
+function voiceFeatureKey(mode,model){return (mode==='breeze-managed'?'managed':mode)+'|'+(mode==='breeze-managed'?'breeze-bf16':model||'');}
+function voiceCapabilities(mode,model,provider){return window.LCVoiceCapabilities?.(mode,model,provider)||{};}
+function syncVoiceFeatures(){
+ const mode=selectedVoiceMode(),model=mode==='managed'?managedModel()?.id:'';
+ const provider=el('voiceProvider').value,apiProfile=mode==='api'?voiceProfile():null;
+ const capability=voiceCapabilities(mode,apiProfile?.model||model,provider),endpoint=el('breezeEndpoint').value.trim();
+ const key=voiceFeatureKey(mode,mode==='managed'?managedModelId:mode==='breeze'?endpoint:apiProfile?JSON.stringify([provider,apiProfile.model,apiProfile.endpoint]):'');
+ if(featureVoiceKey!==key){
+  featureVoiceKey=key;
+  const saved=key===voiceFeatureKey(config.voiceMode,['managed','breeze-managed'].includes(config.voiceMode)?config.managedVoiceModel:config.voiceMode==='breeze'?config.breezeEndpoint?.trim():config.voiceMode==='api'?JSON.stringify([config.voiceProvider,config.voiceApiModel,config.voiceApiUrl]):'');
+  el('managedVoiceStreaming').checked=mode==='managed'&&saved&&config.voiceStreaming===true;
+  el('apiVoiceStreaming').checked=mode==='api'&&saved&&config.voiceStreaming===true;
+  el('serviceVoiceStreaming').checked=mode==='breeze'&&saved&&config.voiceStreaming===true;
+  el('voiceCudaGraph').checked=mode==='managed'&&saved&&config.voiceCudaGraph===true;
+  el('idleVramOptimization').checked=config.idleVramOptimization===true;
+ }
+ el('managedStreamingRow').hidden=mode!=='managed'||!capability.streaming;
+ el('serviceStreamingRow').hidden=mode!=='breeze'||!capability.streaming||!endpoint||wholeVoiceServices.has(endpoint);
+ el('apiStreamingRow').hidden=mode!=='api'||!capability.streaming;
+ el('voiceCudaGraphRow').hidden=mode==='api';
+ el('idleVramOptimizationRow').hidden=mode!=='managed'||!capability.cudaGraph;
+ el('idleVramOptimization').disabled=mode!=='managed'||!capability.cudaGraph||voiceActionBusy;
+ el('voiceCudaGraph').disabled=mode==='api'||!capability.cudaGraph||voiceActionBusy;
+}
+function syncLocalVoiceFields(){
+ syncVoiceFeatures();
+ const mode=selectedVoiceMode(),model=managedModel();
+ const describesVoice=mode==='breeze'||mode==='managed'&&model?.reference===true;
+ const cloning=describesVoice||mode==='local';
+ el('voiceStyleRow').hidden=!cloning;
+ el('voiceStyle').options[0].textContent=mode==='local'?'使用音色 ID':'描述音色';
+ const cloneEnabled=cloning&&el('voiceStyle').value==='clone';
+ voiceDescription.parentElement.hidden=!describesVoice||cloneEnabled;
+ el('breezeHelp').hidden=!describesVoice;
+ voiceAdvanced.hidden=![...voiceAdvanced.querySelectorAll('label')].some(label=>!label.hidden);
+ el('referenceAI').disabled=!reference;
+ el('referenceAI').title=reference?'识别当前参考录音':'请先选择参考录音';
+ el('referenceAIRow').hidden=!cloneEnabled;el('referenceText').disabled=el('referenceAI').checked;el('referenceText').parentElement.hidden=!cloneEnabled||el('referenceAI').checked;
+ el('referenceLibrary').hidden=!cloneEnabled;
+ el('clearReference').hidden=!cloneEnabled||!reference;
+ const summary=el('referenceSelectionSummary');
+ summary.hidden=!cloneEnabled||!reference;
+ summary.textContent=reference?'已选择 '+reference.name+(el('referenceText').value.trim()?'，已填写参考文字稿。':'，请填写对应的准确文字稿。'):'';
+ el('clearReference').textContent=reference&&(mode==='breeze'||mode==='managed')?'清除参考，按音色描述试播':'清除参考音频';
+}
+async function refreshManagedVoice(loadList=false){
+ const revision=++managedEpoch;
+ let removedModel=false;
+ try{
+  if(loadList){
+   const listing=await post('/api/voice-local-models',{});
+   if(revision!==managedEpoch||!window.document)return;
+   managedModels=Array.isArray(listing.models)?listing.models:[];
+   syncVoiceOptions(el('managedVoiceModel'),[['','请选择模型'],...managedModels.map(model=>[model.id,model.label])],managedModelId);
+   removedModel=!!managedModelId&&!el('managedVoiceModel').value;
+   managedModelId=el('managedVoiceModel').value;
+   if(removedModel)resetReferenceRecognition();
+  }
+  const model=managedModel();
+  if(!loadList||checkedVoiceModel!==model?.id)checkedVoiceReady=false;
+  el('pickVoiceEnvironment').disabled=voiceInstallLocked||pickingVoiceEnvironment;
+  el('prepareLocalVoice').disabled=true;
+  if(model&&!checkedVoiceReady)el('managedVoiceStatus').textContent='正在检查所选模型的环境…';
+  syncLocalVoiceFields();
+  updateVoiceActions();
+  const state=model?await post('/api/voice-local-status',{model:model.id}):null;
+  if(revision!==managedEpoch||!window.document)return;
+  checkedVoiceModel=model?.id||'';
+  checkedVoiceState=state;
+  checkedVoiceReady=state?.installed===true;
+  el('prepareLocalVoice').disabled=!model||voiceInstallLocked;
+  el('prepareLocalVoice').hidden=false;
+  updateVoiceActions();
+  el('managedVoiceStatus').textContent=removedModel?'原选模型已移除，请重新选择。':state?.message||(state?.installed?'环境已准备':'先自行下载语音模型，点击「模型位置」放入文件，再刷新并选择。支持 Breeze TTS2 BF16 权重，或 Piper 的 .onnx 和配套 .onnx.json。');
+ }catch(error){
+  if(revision!==managedEpoch||!window.document)return;
+  checkedVoiceState=null;
+  checkedVoiceReady=false;
+  el('prepareLocalVoice').disabled=!managedModel()||voiceInstallLocked;
+  el('managedVoiceStatus').textContent='读取环境状态失败：'+error.message;
+  updateVoiceActions();
+ }
+}
+el('openVoiceModels').onclick=()=>window.petDesktop?.asset('openFolder','voice-models');
+el('refreshVoiceModels').onclick=()=>refreshManagedVoice(true);
+el('pickVoiceEnvironment').onclick=async()=>{
+ const model=managedModel();
+ if(voiceInstallLocked||pickingVoiceEnvironment)return;
+ pickingVoiceEnvironment=true;
+ el('pickVoiceEnvironment').disabled=true;
+ const previous=el('managedVoiceStatus').textContent;
+ el('managedVoiceStatus').textContent='请选择已有环境目录，选择后 LC 会检查 Python 和推理依赖。';
+ try{
+  const result=await window.petDesktop?.asset('pickVoiceEnvironment',{model:model?.id||''});
+  if(!result||result.cancelled){el('managedVoiceStatus').textContent=previous;return;}
+  await refreshManagedVoice(true);
+  if(!managedModel())el('managedVoiceStatus').textContent=result.message||'已识别现有环境，请选择要使用的模型。';
+ }catch(error){el('managedVoiceStatus').textContent=error.message;}
+ finally{pickingVoiceEnvironment=false;el('pickVoiceEnvironment').disabled=voiceInstallLocked;}
+};
+el('managedVoiceModel').onchange=()=>{managedModelId=el('managedVoiceModel').value;resetReferenceRecognition();void refreshManagedVoice();};
+async function checkVoiceInstallDialog(){
+ const model=managedModel();
+ if(!model||voiceInstallLocked)return;
+ el('confirmVoiceInstall').disabled=true;
+ el('voiceInstallSummary').textContent='正在检查 '+model.label+' 的推理环境…';
+ await refreshManagedVoice();
+ if(!voiceInstallDialog.open||managedModel()?.id!==model.id)return;
+ const state=checkedVoiceModel===model.id?checkedVoiceState:null;
+ if(!state){el('voiceInstallSummary').textContent=el('managedVoiceStatus').textContent;return;}
+ if(state.installed){
+  el('voiceInstallSummary').textContent=model.label+' 的环境已准备，可以保存设置后试播。';
+  return;
+ }
+ const missing=state?.missingComponents?.length?state.missingComponents.join('、'):model.download;
+ const size=Number.isFinite(state?.downloadBytes)&&state.downloadBytes>0?`预计下载 ${(state.downloadBytes/1024/1024).toFixed(0)} MB。`:'';
+ el('voiceInstallSummary').textContent=`已选择 ${model.label}。权重需自行下载，每个模型须配置对应的推理环境。将补齐 ${missing}。${size}${model.space}。确认后开始配置，期间将暂停插件的 AI 调用。`;
+ el('confirmVoiceInstall').disabled=false;
+}
+el('prepareLocalVoice').onclick=async()=>{
+ const model=managedModel();
+ if(!model||voiceInstallLocked||document.querySelector('dialog[open]'))return;
+ proposedVoiceModel=model.id;
+ voiceInstallDialog.showModal();
+ await checkVoiceInstallDialog();
+};
+el('recheckVoiceEnvironment').onclick=checkVoiceInstallDialog;
+el('chooseVoiceEnvironment').onclick=()=>{if(voiceInstallLocked)return;voiceInstallDialog.close();el('pickVoiceEnvironment').click();};
+const downloadSourceKey='lcVoiceDownloadSource';
+const downloadSourceProfile=window.petStorageKey||window.petProfile;
+const previousDownloadSource=localStorage.getItem(downloadSourceKey);
+const storedDownloadSource=window.petDesktop?.store?.(downloadSourceProfile,'get',downloadSourceKey);
+if(!storedDownloadSource&&['official','china'].includes(previousDownloadSource)){
+ window.petDesktop?.store?.(downloadSourceProfile,'set',downloadSourceKey,previousDownloadSource);
+}
+el('voiceDownloadSource').value=storedDownloadSource||previousDownloadSource||'official';
+el('voiceDownloadSource').onchange=()=>{
+ const value=el('voiceDownloadSource').value;
+ if(window.petDesktop?.store)window.petDesktop.store(downloadSourceProfile,'set',downloadSourceKey,value);
+ else localStorage.setItem(downloadSourceKey,value);
+};
+el('cancelVoiceInstall').onclick=()=>voiceInstallDialog.close();
+el('confirmVoiceInstall').onclick=async()=>{
+ const model=managedModel();
+ if(!model||el('confirmVoiceInstall').disabled||checkedVoiceReady||model.id!==proposedVoiceModel||!voiceInstallDialog.open||voiceInstallLocked||window.petAdapting)return;
+ voiceInstallLocked=true;
+ el('recheckVoiceEnvironment').disabled=el('chooseVoiceEnvironment').disabled=el('voiceDownloadSource').disabled=true;
+ window.petAdapting=true;
+ el('confirmVoiceInstall').hidden=el('cancelVoiceInstall').hidden=true;
+ try{
+  await stop();
+  let state=await post('/api/voice-local-install',{model:model.id,confirmed:true,source:el('voiceDownloadSource').value});
+  while(state.state==='installing'){
+   el('voiceInstallSummary').textContent=state.message||'正在配置所选模型的环境…';
+   await new Promise(resolve=>setTimeout(resolve,1200));
+   state=await post('/api/voice-local-status',{model:model.id});
+  }
+  el('managedVoiceStatus').textContent=(state.message||(state.installed?'环境已准备':'环境配置未完成，请重试。'))+(state.log?' 日志：'+state.log:'');
+ }catch(error){el('managedVoiceStatus').textContent='配置未完成，可点击环境配置重试：'+error.message;}
+ finally{
+  voiceInstallLocked=false;
+  el('recheckVoiceEnvironment').disabled=el('chooseVoiceEnvironment').disabled=el('voiceDownloadSource').disabled=false;
+  window.petAdapting=false;
+  el('confirmVoiceInstall').hidden=el('cancelVoiceInstall').hidden=false;
+  voiceInstallDialog.close();
+  schedule();
+  if(selectedVoiceMode()==='managed'&&managedModelId===model.id)void refreshManagedVoice();
+ }
+};
+el('referenceText').addEventListener('input',syncLocalVoiceFields);
+
+async function restoreSavedReference(){
+ if(reference||!config.referenceName||!window.petDesktop?.asset)return;
+ const name=config.referenceName,revision=++referenceLoad;
+ referenceReading=revision;
+ restoringReference={name,revision};
+ try{
+  const audio=await window.petDesktop.asset('readVoiceReference',name);
+  if(revision!==referenceLoad)return;
+  savedReference=reference={...audio,storedName:name};
+  el('voiceReferenceChoice').value=name;syncLocalVoiceFields();updateVoiceActions();
+ }catch{if(revision===referenceLoad)el('voiceStatus').textContent='已保存的参考录音未找到，请重新选择。';}
+ finally{
+  if(restoringReference?.revision===revision)restoringReference=null;
+  finishReferenceRead(revision);
+ }
+}
+function isReferenceReading(){return referenceReading!==0&&referenceReading===referenceLoad;}
+function finishReferenceRead(revision){
+ if(revision!==referenceLoad)return;
+ referenceReading=0;updateVoiceActions();
+}
+function cancelReferenceRecognition(){
+ if(!referenceRecognition)return;
+ referenceRecognition=null;
+ el('voiceStatus').textContent='已取消识别，保留原文字稿。';
+}
+async function recognizeReference(){
+ if(!el('referenceAI').checked||el('referenceAIRow').hidden||!reference||referenceRecognition)return;
+ const audio=reference,model=el('petModel').value,request={};
+ referenceRecognition=request;
+ el('voiceStatus').textContent='正在识别参考录音…';syncLocalVoiceFields();updateVoiceActions();
+ try{
+  if(window.liveAI===false)throw Error('AI 调用已关闭');
+  const result=await window.petDesktop.asset('transcribeReference',{audio,model});
+  if(referenceRecognition!==request)return;
+  if(!result?.text?.trim())throw Error('模型没有返回可用文字稿');
+  el('referenceText').value=result.text.trim();el('voiceStatus').textContent='文字稿已识别，请保存语音设置。取消勾选可手动校对。';
+ }catch(error){
+  if(referenceRecognition!==request)return;
+  el('referenceAI').checked=false;
+  el('voiceStatus').textContent='识别失败：'+String(error.message||error).replace(/[。.!！]+$/,'')+'。请自行填写参考录音的准确文字稿。';
+ }finally{
+  if(referenceRecognition===request){
+   referenceRecognition=null;syncLocalVoiceFields();updateVoiceActions();
+  }
+ }
+}
+el('referenceAI').onchange=()=>{if(!el('referenceAI').checked)cancelReferenceRecognition();syncLocalVoiceFields();updateVoiceActions();void recognizeReference();};
+
+el('voiceStyle').onchange=()=>{resetReferenceRecognition();if(el('voiceStyle').value==='clone')void refreshVoiceReferences();};
+function resetReferenceRecognition(){
+ cancelReferenceRecognition();el('referenceAI').checked=false;syncLocalVoiceFields();updateVoiceActions();
+}
+function selectedVoiceMode(){
+ if(el('voiceMode').value==='api')return 'api';
+ return el('localEngine').value==='service'?el('voiceLocalProtocol').value:'managed';
+}
+function voiceModeUI(){const mode=selectedVoiceMode(),api=mode==='api',managed=mode==='managed',breeze=mode==='breeze'||managed,provider=el('voiceProvider').value,item=voiceCatalog[provider]||{};
+ cancelReferenceRecognition();el('referenceAI').checked=false;
+ el('localEngine').parentElement.hidden=api;el('managedVoiceSetup').hidden=!managed;
+ el('voiceLocalProtocol').parentElement.hidden=api||managed;
+ if(managed)void refreshManagedVoice(true);else managedEpoch++;
+ el('breezeHelp').textContent=managed?'普通试播可直接使用自然音色。克隆音色需选参考音频并填写对应文字稿。':'先启动本地 Breeze 服务。普通试播可使用自然音色，克隆音色需选参考音频与对应文字稿。';
+ el('cloudVoiceCost').hidden=!api;
  for(const id of ['voiceProvider','voiceApiModel','voiceApiKey','voiceNetwork'])el(id).parentElement.hidden=!api;
  el('voiceRegion').parentElement.hidden=!api||provider!=='qwen';el('voiceCustomModel').parentElement.hidden=!api||provider!=='openai';
  el('voiceApiUrl').parentElement.hidden=!api||provider!=='openai';
@@ -123,13 +398,12 @@ function voiceModeUI(){const mode=el('voiceMode').value,api=mode==='api',breeze=
  el('voiceApiUrl').readOnly=provider!=='openai';el('voiceProviderHelp').dataset.helpText=item.help||'';el('voiceProviderHelp').title=item.help||'';el('voiceProviderTip').textContent=item.help||'';
  el('voiceGuidance').parentElement.hidden=!(api&&provider==='breeze');el('localEngineHelp').hidden=mode!=='local';updateVoiceKeyInputInfo();if(!api)el('voiceKeyWarning').hidden=true;
  el('ttsEndpoint').parentElement.hidden=mode!=='local';
- for(const id of ['referenceFile','referenceText'])el(id).parentElement.hidden=api;
- el('breezeEndpoint').parentElement.hidden=!breeze;el('breezeInstruction').parentElement.hidden=!(breeze||api&&item.instruction&&(provider!=='qwen'||el('voiceApiModel').value==='qwen3-tts-instruct-flash'));
- el('breezeInstructionLabel').textContent=breeze?'音色描述 / 演绎指令':'固定演绎约束（可选；当次情绪由会话决定）';el('breezeInstruction').placeholder=breeze?'音色或语气描述':'留空也会根据本次会话生成演绎指令';el('breezeHelp').hidden=!breeze;el('voiceId').parentElement.hidden=breeze;
- if(api)void refreshVoiceKey();else lastVoiceCredential=null;updateVoiceActions();
+ el('breezeEndpoint').parentElement.hidden=mode!=='breeze';el('voiceId').parentElement.hidden=breeze;
+ syncLocalVoiceFields();
+ if(api)void refreshVoiceKey();else {keyStatusEpoch++;lastVoiceCredential=null;}updateVoiceActions();
 }
 el('voiceProvider').onchange=()=>{voiceDrafts[shownProvider]=voiceProfile();populateVoice(voiceDrafts[el('voiceProvider').value]||{});};
-el('voiceRegion').onchange=()=>{el('voiceApiUrl').value='https://'+(el('voiceRegion').value==='sg'?'dashscope-intl.aliyuncs.com':'dashscope.aliyuncs.com')+'/api/v1/services/aigc/multimodal-generation/generation';clearVoiceInput();void refreshVoiceKey();};
+el('voiceRegion').onchange=()=>{el('voiceApiUrl').value='https://'+(el('voiceRegion').value==='sg'?'dashscope-intl.aliyuncs.com':'dashscope.aliyuncs.com')+'/api/v1/services/aigc/multimodal-generation/generation';clearVoiceInput();syncVoiceFeatures();void refreshVoiceKey();};
 el('voiceApiModel').onchange=voiceModeUI;
 el('voiceApiKey').oninput=()=>{updateVoiceKeyInputInfo();if(!credentialScope&&el('voiceApiKey').value)credentialScope=el('voiceProvider').value+'|'+el('voiceApiUrl').value.trim();};
 el('voiceApiKey').onchange=()=>{updateVoiceKeyInputInfo();credentialScope=el('voiceProvider').value+'|'+el('voiceApiUrl').value.trim();};
@@ -137,9 +411,35 @@ el('voiceApiUrl').onchange=()=>{clearVoiceInput();void refreshVoiceKey();};
 el('clearVoiceKey').onclick=async()=>{try{await window.petDesktop?.asset?.('voiceCredential',{action:'clear',provider:el('voiceProvider').value,endpoint:el('voiceApiUrl').value.trim()});clearVoiceInput();el('voiceStatus').textContent='已删除此服务的已保存密钥';await refreshVoiceKey();}catch(error){el('voiceStatus').textContent=error.message;}};
 el('playCalibration').onclick=()=>el('speechAudio').play().catch(()=>{el('voiceStatus').textContent='请先导入可播放的测试音频。';});
 el('pauseCalibration').onclick=()=>el('speechAudio').pause();
-el('voiceMode').onchange=voiceModeUI;
-function fill(){for(const k of Object.keys(voiceDrafts))delete voiceDrafts[k];Object.assign(voiceDrafts,config.voiceProfiles||{});el('voiceProvider').value=config.voiceProvider||'openai';if(!el('voiceProvider').value)el('voiceProvider').value='openai';el('voiceMode').value=config.voiceMode||'local';el('voiceApiUrl').value=config.voiceApiUrl||'';el('voiceApiModel').value=config.voiceApiModel||'';voiceModeUI();el('petModel').value=config.model;el('reasonMode').value=config.reasonMode;el('reasonCap').value=config.reasonCap;el('reasonMode').disabled=!el('petModel').value;el('reasonCap').disabled=!el('petModel').value||config.reasonMode!=='auto';el('persona').value=config.persona;el('autonomy').checked=config.auto;el('touchAI').checked=config.touchAI;el('touchDebounceMs').value=config.touchDebounceMs;el('decisionInterval').value=config.interval;el('quietFactor').value=config.quiet;el('autoBudget').value=config.budget;el('speechChance').value=config.speakChance;el('breezeEndpoint').value=config.breezeEndpoint;el('breezeInstruction').value=config.breezeInstruction;el('ttsEndpoint').value=config.tts;el('voiceId').value=config.voice;el('referenceText').value=config.referenceText;el('autoVoice').checked=config.autoVoice;el('lipGain').value=config.lipGain;el('lipOffset').value=config.lipOffset;populateVoice({endpoint:config.voiceApiUrl,model:config.voiceApiModel,voice:config.voice,instruction:config.breezeInstruction,network:config.voiceNetwork,guidance:config.voiceGuidance});}
-fill();renderHistory();el('reasonMode').onchange=()=>el('reasonCap').disabled=!el('petModel').value||el('reasonMode').value!=='auto';el('petModel').onchange=()=>{el('reasonMode').disabled=!el('petModel').value;el('reasonMode').onchange();};
+el('voiceMode').onchange=()=>{
+ const api=el('voiceMode').value==='api';
+ if(api!==editingCloud){
+  const current=voiceProfile();
+  if(editingCloud)voiceDrafts[shownProvider]=current;
+  else localVoiceProfile={voice:current.voice,instruction:current.instruction};
+  editingCloud=api;
+  if(api){populateVoice(voiceDrafts[shownProvider]||{});return;}
+  el('voiceId').value=localVoiceProfile.voice;el('breezeInstruction').value=localVoiceProfile.instruction;
+ }
+ clearVoiceInput();voiceModeUI();
+};
+el('localEngine').onchange=voiceModeUI;
+el('voiceLocalProtocol').onchange=voiceModeUI;
+const personaDiagnostic=document.createElement('small');
+personaDiagnostic.id='personaDiagnostic';
+personaDiagnostic.textContent='性格卡为空。角色可继续互动，性格会随会话中的交流自然形成。';
+el('diagnostics').after(personaDiagnostic);
+function fill(){
+ featureVoiceKey=null;
+ if(typeof config.persona!=='string')config.persona='';
+ personaDiagnostic.hidden=!!config.persona.trim();
+ referenceLoad++;
+ if(savedReference?.storedName!==config.referenceName)savedReference=null;
+ reference=savedReference;el('voiceReferenceChoice').value=reference?.storedName||'';
+ editingCloud=config.voiceMode==='api';
+ localVoiceProfile=editingCloud?{voice:'',instruction:'',...config.localVoiceProfile}:{voice:config.voice||'',instruction:config.breezeInstruction||''};
+ for(const k of Object.keys(voiceDrafts))delete voiceDrafts[k];Object.assign(voiceDrafts,config.voiceProfiles||{});el('voiceProvider').value=config.voiceProvider||'openai';if(!el('voiceProvider').value)el('voiceProvider').value='openai';el('voiceMode').value=config.voiceMode==='api'?'api':'local';el('localEngine').value=['local','breeze'].includes(config.voiceMode)?'service':'managed';el('voiceLocalProtocol').value=config.voiceMode==='breeze'?'breeze':'local';managedModelId=config.managedVoiceModel||(config.voiceMode==='breeze-managed'?'breeze-bf16':'');el('voiceApiUrl').value=config.voiceApiUrl||'';el('voiceApiModel').value=config.voiceApiModel||'';el('breezeEndpoint').value=config.breezeEndpoint;voiceModeUI();el('petModel').value=config.model;el('reasonMode').value=config.reasonMode;el('reasonCap').value=config.reasonCap;el('reasonMode').disabled=!el('petModel').value;el('reasonCap').disabled=!el('petModel').value||config.reasonMode!=='auto';el('persona').value=config.persona;el('autonomy').checked=config.auto;el('touchAI').checked=config.touchAI;el('touchDebounceMs').value=config.touchDebounceMs;el('decisionInterval').value=config.interval;el('quietFactor').value=config.quiet;el('autoBudget').value=config.budget;el('speechChance').value=config.speakChance;el('breezeInstruction').value=config.breezeInstruction;el('ttsEndpoint').value=config.tts;el('voiceId').value=config.voice;el('referenceText').value=config.referenceText;el('voiceStyle').value=config.voiceStyle==='clone'?'clone':'normal';syncLocalVoiceFields();void restoreSavedReference();el('autoVoice').checked=config.autoVoice;el('lipGain').value=config.lipGain;el('lipOffset').value=config.lipOffset;populateVoice({endpoint:config.voiceApiUrl,model:config.voiceApiModel,voice:config.voice,instruction:config.breezeInstruction,network:config.voiceNetwork,guidance:config.voiceGuidance});}
+fill();renderHistory();el('reasonMode').onchange=()=>el('reasonCap').disabled=!el('petModel').value||el('reasonMode').value!=='auto';el('petModel').onchange=()=>{el('reasonMode').disabled=!el('petModel').value;el('reasonMode').onchange();resetReferenceRecognition();};
 el('mouseButtons').value=config.swapButtons?'swap':'normal';
 el('mouseButtons').onchange=()=>{config.swapButtons=el('mouseButtons').value==='swap';save();};
 function schedule(){
@@ -150,7 +450,7 @@ window.zoneEditor=ZoneEditor.init(H,hitZones);el('editZones').onclick=()=>window
 for(const id of ['companionPanel','voicePanel']){
  const section=el(id);section.className='settings-pane';section.removeAttribute('role');section.querySelector('.close').remove();el('settingsDock').append(section);
 }
-function showPane(id){if(id==='voicePanel')void refreshVoiceKey();
+function showPane(id){if(id==='voicePanel'){void refreshVoiceKey();void refreshVoiceReferences();if(selectedVoiceMode()==='managed')void refreshManagedVoice(true);}
  const editor=el('zoneEditPanel');
  if(editor)editor.hidden=!window.zoneEditor?.editing||id!=='companionPanel';
  document.querySelectorAll('[data-pane]').forEach(button=>{
@@ -172,24 +472,32 @@ el('chatPanel').querySelector('.close').onclick=()=>{el('chatPanel').hidden=true
 el('saveCompanion').onclick=()=>{const delay=Number(el('touchDebounceMs').value);if(!Number.isInteger(delay)||delay<50||delay>5000){status('触摸合并间隔须为 50–5000ms 的整数','error');return;}config={...config,model:el('petModel').value,reasonMode:el('reasonMode').value,reasonCap:el('reasonCap').value,persona:el('persona').value.slice(0,5000),auto:el('autonomy').checked,touchAI:el('touchAI').checked,touchDebounceMs:delay,interval:Math.max(30,Math.min(900,+el('decisionInterval').value||180)),quiet:Math.max(1.2,Math.min(5,+el('quietFactor').value||2)),budget:Math.max(0,Math.min(120,+el('autoBudget').value||0)),speakChance:+el('speechChance').value};touchBatch.setDelay(delay);if(!config.touchAI)resetTouches();save();fill();schedule();status('设置已保存；尚未验证连接');};
 function collectVoiceSettings(){
  const provider=el('voiceProvider').value,profile=voiceProfile();
- return {voiceMode:el('voiceMode').value,voiceProvider:provider,voiceApiUrl:profile.endpoint,voiceApiModel:profile.model,voiceNetwork:profile.network,voiceProfiles:{...voiceDrafts,[provider]:profile},breezeEndpoint:el('breezeEndpoint').value.trim(),breezeInstruction:profile.instruction.slice(0,2000),tts:el('ttsEndpoint').value.trim(),voice:profile.voice,referenceText:el('referenceText').value,autoVoice:el('autoVoice').checked,voiceGuidance:profile.guidance,lipGain:+el('lipGain').value,lipOffset:Math.max(-2,Math.min(2,+el('lipOffset').value||0))};
+ return {voiceStyle:el('voiceStyle').value,voiceMode:selectedVoiceMode(),managedVoiceModel:managedModelId,voiceProvider:provider,voiceApiUrl:profile.endpoint,voiceApiModel:profile.model,voiceNetwork:profile.network,localVoiceProfile:editingCloud?{...localVoiceProfile}:{voice:profile.voice,instruction:profile.instruction},voiceProfiles:editingCloud?{...voiceDrafts,[provider]:profile}:{...voiceDrafts},breezeEndpoint:el('breezeEndpoint').value.trim(),breezeInstruction:profile.instruction.slice(0,2000),tts:el('ttsEndpoint').value.trim(),voice:profile.voice,referenceText:el('referenceText').value,referenceName:reference?.storedName||'',autoVoice:el('autoVoice').checked,voiceStreaming:!el('managedStreamingRow').hidden&&el('managedVoiceStreaming').checked||!el('serviceStreamingRow').hidden&&el('serviceVoiceStreaming').checked||!el('apiStreamingRow').hidden&&el('apiVoiceStreaming').checked,voiceCudaGraph:!!voiceCapabilities(selectedVoiceMode(),managedModel()?.id).cudaGraph&&el('voiceCudaGraph').checked,idleVramOptimization:el('idleVramOptimization').checked,voiceGuidance:profile.guidance,lipGain:+el('lipGain').value,lipOffset:Math.max(-2,Math.min(2,+el('lipOffset').value||0))};
 }
-function voiceDirty(){const current=collectVoiceSettings();return !!el('voiceApiKey').value||voiceComparisonFields.some(k=>current[k]!== (k==='voiceMode'?config[k]||'local':k==='voiceNetwork'?config[k]||'direct':config[k]));}
-function voiceTrialAllowed(){
- if(voiceSaveFailed||voiceDirty())return false;
+function voiceDirty(){const current=collectVoiceSettings();return !!el('voiceApiKey').value||(reference?.storedName||'')!==(config.referenceName||'')||reference?.base64!==savedReference?.base64||voiceComparisonFields.some(k=>current[k]!== (k==='voiceStyle'?config[k]||'normal':k==='managedVoiceModel'?config[k]||(config.voiceMode==='breeze-managed'?'breeze-bf16':''):k==='voiceMode'?(config[k]==='breeze-managed'?'managed':config[k]||'managed'):k==='voiceNetwork'?config[k]||'direct':k==='voiceStreaming'?config[k]===true&&!(config.voiceMode==='breeze'&&wholeVoiceServices.has(config.breezeEndpoint?.trim())):k==='voiceCudaGraph'||k==='idleVramOptimization'?config[k]===true:config[k]));}
+function voiceTrialAllowed(allowManagedDraft=false){
+ if(window.liveAI===false||voiceSaveFailed||referenceRecognition||isReferenceReading())return false;
+ if(selectedVoiceMode()==='managed')return !!managedModel()&&checkedVoiceModel===managedModelId&&checkedVoiceReady&&(allowManagedDraft||!voiceDirty());
+ if(voiceDirty())return false;
  if(el('voiceMode').value!=='api')return true;
  if(voiceCatalog[el('voiceProvider').value]?.unavailable||!lastVoiceCredential?.saved)return false;
  return !!el('voiceId').value.trim()&&!!voiceProfile().model;
 }
 function updateVoiceActions(){
- const busy=voiceActionBusy||speechBusy,api=el('voiceMode').value==='api',provider=el('voiceProvider').value,item=voiceCatalog[provider]||{};
+ const busy=voiceActionBusy||speechBusy||!!referenceRecognition||isReferenceReading(),api=el('voiceMode').value==='api',provider=el('voiceProvider').value,item=voiceCatalog[provider]||{};
  el('saveVoice').textContent='保存语音设置';el('saveVoice').disabled=busy||api&&!!item.unavailable;
  el('verifyVoiceKey').disabled=busy||!api||!item.check||!el('voiceApiKey').value&&!lastVoiceCredential?.saved;
  const muted=typeof playback!=='undefined'&&(playback.muted||playback.volume<=0);el('voiceTest').disabled=busy||muted||!voiceTrialAllowed();el('speakLast').disabled=busy||muted||!voiceTrialAllowed();
- el('voiceReadyHint').textContent=muted?'已静音：朗读与语音合成调用已暂停':api&&item.unavailable?'此引擎请改选通用本地模型服务':voiceDirty()?'设置已修改，请先保存；保存不发起云端请求':api&&!lastVoiceCredential?.saved?'请先输入并保存此服务的 API Key':api&&!el('voiceId').value.trim()?'请填写所选服务的音色':api?'可直接试播，无需先测试连接；试播可能产生语音费用':'试播使用已保存的本地服务设置';
+ el('voiceReadyHint').textContent=window.liveAI===false?'AI 总开关已关闭。开启后才能试播。':muted?'已静音：朗读与语音合成调用已暂停':api&&item.unavailable?'此引擎请改选通用本地模型服务':selectedVoiceMode()==='managed'?(checkedVoiceReady?(voiceDirty()?'设置已修改，请保存后试播。':'环境已就绪，可直接试播。'):'请先选择模型并检查环境。'):voiceDirty()?'设置已修改，请先保存；保存不发起云端请求':api&&!lastVoiceCredential?.saved?'请先输入并保存此服务的 API Key':api&&!el('voiceId').value.trim()?'请填写所选服务的音色':api?'可直接试播，无需先测试连接；试播可能产生语音费用':'试播使用已保存的本地服务设置';
 }
 async function saveVoice(){
- el('voiceStatus').textContent='正在加密保存语音设置（不联网）…';const prefs=collectVoiceSettings(),poll=setInterval(()=>{void refreshVoiceDiagnostic(true)},350);
+ if(referenceRecognition||isReferenceReading())return false;
+ const audio=reference,prefs=collectVoiceSettings();
+ if(audio&&!audio.storedName){
+  try{const saved=await window.petDesktop.asset('saveVoiceReference',audio);audio.storedName=prefs.referenceName=saved.name;}
+  catch(error){el('voiceStatus').textContent='参考音频保存失败：'+error.message;return false;}
+ }
+ el('voiceStatus').textContent='正在加密保存语音设置（不联网）…';const poll=setInterval(()=>{void refreshVoiceDiagnostic(true)},350);
  try{
   let result;
   if(prefs.voiceMode==='api'){
@@ -199,7 +507,7 @@ async function saveVoice(){
   }else{
    const next={...config,...prefs};petStore.setItem('companion-config-v4',JSON.stringify(next));result={settings:prefs,credential:null,validated:false};
   }
-  voiceSaveFailed=false;Object.assign(config,result.settings);Object.assign(voiceDrafts,config.voiceProfiles||{});clearVoiceInput();lastVoiceCredential=result.credential;el('voiceApiUrl').value=config.voiceApiUrl;
+  voiceSaveFailed=false;savedReference=audio;Object.assign(config,result.settings);Object.assign(voiceDrafts,config.voiceProfiles||{});clearVoiceInput();lastVoiceCredential=result.credential;el('voiceApiUrl').value=config.voiceApiUrl;
   if(prefs.voiceMode==='api')await refreshVoiceKey();updateVoiceActions();
   el('voiceAuthStatus').textContent=result.validated?'设置已保存；此密钥上次认证通过，音色与额度仍需试播。':'设置已保存，尚未验证；可选测试连接或直接试播。';
   el('voiceStatus').textContent='语音设置已保存；本次未发起网络请求。';await refreshVoiceDiagnostic();return true;
@@ -235,16 +543,17 @@ function saveMouthTuning(){
  updateVoiceActions();
 }
 for(const id of ['lipGain','lipOffset']){el(id).addEventListener('input',saveMouthTuning);el(id).addEventListener('change',saveMouthTuning);}
+for(const id of ['breezeEndpoint','voiceCustomModel','voiceApiUrl'])el(id).addEventListener('input',syncVoiceFeatures);
 el('voicePanel').addEventListener('input',updateVoiceActions);el('voicePanel').addEventListener('change',updateVoiceActions);
 function showVoiceHelp(){const tip=el('voiceProviderTip'),anchor=el('voiceProviderHelp');if(!tip.showPopover)return;try{tip.showPopover()}catch{}const a=anchor.getBoundingClientRect(),r=tip.getBoundingClientRect();tip.style.left=Math.max(8,Math.min(innerWidth-r.width-8,a.left))+'px';tip.style.top=Math.max(8,a.bottom+8+r.height<=innerHeight-8?a.bottom+8:a.top-r.height-8)+'px';}
 el('voiceProviderHelp').onclick=showVoiceHelp;el('voiceProviderHelp').onmouseenter=showVoiceHelp;el('voiceProviderHelp').onfocus=showVoiceHelp;
 el('voiceProviderHelp').onmouseleave=()=>{try{el('voiceProviderTip').hidePopover()}catch{}};
 
 function capabilities(){
- const {motions,expressions}=C.animationInfo(H.catalog,H.params);
+ const {motions,expressions,controls}=C.animationInfo(H.catalog,H.params);
  const rig=H.catalog.controlRig;
  return {
-  motions:motions.filter(m=>m.kind==='once'),baseMotions:motions.filter(m=>m.kind!=='once'),
+  controls,motions:motions.filter(m=>m.kind==='once'),baseMotions:motions.filter(m=>m.kind!=='once'),
   expressions:expressions.filter(e=>e.usable).map(({bindings,...e})=>e),
   gestures:C.gestureInfo(H.catalog,LabState.pairs).map(p=>p.name),gestureTiming:C.gestureInfo(H.catalog,LabState.pairs),
   fine:rig.filter(r=>r.role==='精细表情'),pose:rig.filter(r=>r.role!=='精细表情')
@@ -255,7 +564,7 @@ function injectedModelSettings(){
  try{const saved=JSON.parse(petStore.getItem('mouth-profile-v1')||'null');bindings=saved?.profile===H.catalog?.profile?LCSpeech.validateMappings(saved.bindings,H.catalog,H.params):LCSpeech.detectMappings(H.catalog,H.params);}catch{bindings=LCSpeech.detectMappings(H.catalog,H.params);}
  return {label,mouth:{bindings}};
 }
-function injectedVoiceSettings(){return {mode:config.voiceMode||'local',provider:config.voiceProvider,model:config.voiceApiModel,voice:config.voice,fixedDirection:config.breezeInstruction,guidance:config.voiceGuidance,referenceConfigured:!!reference};}
+function injectedVoiceSettings(){return {mode:config.voiceMode||'managed',provider:config.voiceProvider,model:config.voiceMode==='managed'?config.managedVoiceModel:config.voiceApiModel,voice:config.voice,fixedDirection:config.breezeInstruction,guidance:config.voiceGuidance,referenceConfigured:config.voiceStyle==='clone'&&!!savedReference};}
 let publishedContext='',publishingContext=false;
 async function publishConfiguration(){
  if(!H.ready||!window.petDesktop?.asset||window.petAdapting||window.petChangingMemory||publishingContext)return;
@@ -265,7 +574,9 @@ async function publishConfiguration(){
 }
 window.addEventListener('pet-ready',()=>{void publishConfiguration().catch(e=>status(e.message,'error'));});
 setInterval(()=>{void publishConfiguration().catch(e=>{if(e.message!==publishedContextError){publishedContextError=e.message;status(e.message,'error');}});},2000);let publishedContextError='';
-async function post(path,body,signal){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Lab-Request':'companion'},body:JSON.stringify(body),signal});const d=await r.json();if(!r.ok)throw Object.assign(Error(d.error||'连接失败'),{code:d.code,submitted:typeof d.submitted==='boolean'?d.submitted:undefined});return d;}
+function postResponse(path,body,signal){return fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Lab-Request':'companion'},body:JSON.stringify(body),signal});}
+function responseError(data,fallback){return Object.assign(Error(data.error||fallback),{code:data.voice?.errorCode||data.code,submitted:typeof data.submitted==='boolean'?data.submitted:undefined});}
+async function post(path,body,signal){const r=await postResponse(path,body,signal);const d=await r.json();if(!r.ok)throw responseError(d,'连接失败');return d;}
 const experienceOwners=new Map();
 async function recordExperience(event,status,details={}){
  if(!window.petDesktop?.asset)return null;
@@ -280,7 +591,7 @@ function validateResponse(raw){
  const profile=H.catalog.profile,ids=(H.catalog.controlRig||[]).map(r=>r.id).slice(0,512),old=JSON.stringify(parameterOwners);delete parameterOwners[profile];parameterOwners[profile]=ids;
  while(Object.keys(parameterOwners).length>12)delete parameterOwners[Object.keys(parameterOwners)[0]];
  if(JSON.stringify(parameterOwners)!==old)petStore.setItem('parameter-owner-index-v1',JSON.stringify(parameterOwners));
- return C.validatePlan(raw,H.catalog,H.params,{gestureNames:capabilities().gestures,gestureDefinitions:capabilities().gestureTiming,previousParameterIds:Object.entries(parameterOwners).filter(([key])=>key!==profile).flatMap(([,v])=>Array.isArray(v)?v:[])});
+ return C.validatePlan(raw,H.catalog,H.params,{gestureNames:capabilities().gestures,gestureDefinitions:capabilities().gestureTiming,protectedStateIds:window.lab?.locks?.keys(),previousParameterIds:Object.entries(parameterOwners).filter(([key])=>key!==profile).flatMap(([,v])=>Array.isArray(v)?v:[])});
 }
 function performanceSummary(p){return p?{duration:p.duration,actionEnd:p.actionEnd,authoredVisualSpan:Math.max(p.duration,p.actionEnd||0),audioDuration:0,scale:1,effectiveActionEnd:p.actionEnd||0,actions:p.actions,authoredActions:p.actions,phase:'authored'}:undefined;}
 let timingWrites=Promise.resolve();
@@ -291,8 +602,8 @@ function performResponse(p,raw,media={},receipt){const now=performance.now()/100
  });visualPerformance=instance;instance.start(p,now,media);}
 
 function finishPerformance(cancel=false,mediaOnly=false){if(!mediaOnly||visualPerformance?.media)visualPerformance?.release(performance.now()/1000,cancel);}
-function advancePerformance(now){if(H.manual){visualPerformance?.release(now,true);return;}const a=el('speechAudio');if(visualPerformance?.media&&!visualPerformance.audioEnded&&a.paused&&!a.ended)return;visualPerformance?.tick(now,a.currentTime);}
-function extendPerformance(){const audio=el('speechAudio');if(!audio.paused&&!audio.ended)visualPerformance?.extend(Number.isFinite(audio.duration)&&audio.duration>0?audio.duration:audio.lcDuration,audio.currentTime||0,performance.now()/1000);}
+function advancePerformance(now){if(H.manual){visualPerformance?.release(now,true);return;}const a=speechClock();if(visualPerformance?.media&&!visualPerformance.audioEnded&&a.paused&&!a.ended)return;visualPerformance?.tick(now,a.currentTime);}
+function extendPerformance(){const audio=speechClock();if(!audio.paused&&!audio.ended)visualPerformance?.extend(Number.isFinite(audio.duration)&&audio.duration>0?audio.duration:audio.lcDuration,audio.currentTime||0,performance.now()/1000);}
 async function decide(event,automatic=false,options={}){
  event={...event,id:event.id||crypto.randomUUID(),at:event.at||new Date().toISOString()};let chargedAt=null,requestStarted=false;
  if(options.onFailure)options.failure=null;
@@ -301,7 +612,7 @@ async function decide(event,automatic=false,options={}){
  if(window.liveAI===false){status('AI 调用已关闭');return false;}
  if(window.petAdapting||window.petChangingMemory)return false;if(!H.ready){status('请先加载模型');return false;}if(window.zoneEditor?.editing){status('请先保存或取消区域调整');return false;}if(busy){status('正在等待上一条回复');return false;}if(config.mode!=='local'&&!config.endpoint){status('请先配置接口');return false;}
  memory.calls=memory.calls.filter(t=>Date.now()-t<3600000);if(automatic&&memory.calls.length>=config.budget){await recordExperience(event,'skipped',{reason:'automatic-budget'}).catch(e=>status(e.message,'error'));status('已达到自动调用上限；本地跟随与待机继续');return false;}
- memory.events=(memory.events||[]);memory.events.push({type:event.type,zones:event.touches?.map(x=>x.zone),time:Date.now()});busy=true;const token=++epoch;controller=new AbortController();const requestController=controller;const timeout=setTimeout(()=>requestController.abort(),95000);if(automatic){chargedAt=Date.now();memory.calls.push(chargedAt);}save();status('正在请求自主演出…');
+ cancelSpeechStream();memory.events=(memory.events||[]);memory.events.push({type:event.type,zones:event.touches?.map(x=>x.zone),time:Date.now()});busy=true;const token=++epoch;controller=new AbortController();const requestController=controller;const timeout=setTimeout(()=>requestController.abort(),95000);if(automatic){chargedAt=Date.now();memory.calls.push(chargedAt);}save();status('正在请求自主演出…');
  const m=H.metrics;const current={speech:{enabled:config.autoVoice&&!voiceMuted(),provider:config.voiceProvider},characterId:window.petCharacterId,profile:H.catalog?.profile,emotion:memory.emotion,emotionSource:memory.emotionSource,activity:memory.activity,focusMode:H.focused,workLevel:Math.min(1,m.rate/180),mode:H.character.mode,expressions:[...H.character.expressions].filter(([n,e])=>e.to>0).map(([n])=>n),gestures:[...H.character.gestures.values()].filter(g=>g.targetOn).map(g=>g.pair.name),fine:{...layer.current},appearance:appearance.current,recentAppearanceEvents:appearance.events.slice(-2).map(e=>({at:e.at,reason:e.reason,from:e.from,to:e.to,reply:String(e.reply||'').slice(0,240)})),speakingPreference:['chat','model_change','observe'].includes(event.type)?1:config.speakChance};
  try{
   const route=['chat','touch','observe','model_change'].includes(event.type)?await window.petDesktop?.asset?.('route'):undefined;
@@ -309,8 +620,17 @@ async function decide(event,automatic=false,options={}){
   await recordExperience(event,'occurred');await recordExperience(event,'submitting');
   const retrievalRequested=event.type==='chat'&&/(刚才|刚刚|之前|上次|记得|回忆|经历|换过|摸了|remember|earlier|last\s+time|just\s+now)/i.test(event.text||'');
   let recentExperiences=[];if(retrievalRequested)try{const found=await window.petDesktop?.asset?.('experienceQuery',{sessionId:route?.id,limit:8});recentExperiences=(found?.rows||[]).filter(r=>r.eventId!==event.id).map(r=>({eventId:r.eventId,event:r.event,status:r.status,reply:r.reply,sessionSeq:r.sessionSeq}));recentExperiences=C.limitLists({events:recentExperiences.reverse()},6000).events.reverse();}catch{}
-  if(token!==epoch||requestController.signal.aborted)throw Object.assign(Error('已在提交前取消'),{code:'LC_CANCELLED',submitted:false});
-  generationPending={eventId:event.id,sessionId:route.id};requestStarted=true;const r=await post('/api/decide',{mode:config.mode,endpoint:config.endpoint,model:config.model,key,payload:{route,...(options.visuals?{visuals:options.visuals}:{}),inference:{model:config.model,followSessionModel:!config.model,mode:config.reasonMode,cap:config.reasonCap},persona:config.persona,modelSettings:injectedModelSettings(),voiceSettings:injectedVoiceSettings(),event,context:{...current,retrievalRequested,recentExperiences},capabilities:capabilities()}},requestController.signal);
+  let visuals=options.visuals;
+  if(automatic&&event.type==='observe'&&event.automatic===true&&token===epoch&&!requestController.signal.aborted&&window.liveAI!==false){
+   const request={event,sessionId:route.id,characterId:current.characterId,profile:current.profile};
+   try{
+    const frame=await window.petDesktop?.asset?.('screenObservationCapture',request);
+    if(frame&&await window.petDesktop.asset('screenObservationValidate',{...request,stamp:frame.stamp}))visuals=[frame.image];
+   }catch{}
+  }
+  if(token!==epoch||requestController.signal.aborted||window.liveAI===false)throw Object.assign(Error('已在提交前取消'),{code:'LC_CANCELLED',submitted:false});
+  generationPending={eventId:event.id,sessionId:route.id};requestStarted=true;const r=await post('/api/decide',{mode:config.mode,endpoint:config.endpoint,model:config.model,key,payload:{route,...(visuals?{visuals}:{}),inference:{model:config.model,followSessionModel:!config.model,mode:config.reasonMode,cap:config.reasonCap},persona:config.persona,modelSettings:injectedModelSettings(),voiceSettings:injectedVoiceSettings(),event,context:{...current,retrievalRequested,recentExperiences},capabilities:capabilities()}},requestController.signal);
+  clearTimeout(timeout);
   if(generationPending?.eventId===event.id)generationPending=null;
   if(token!==epoch){if(userCancellations.has(event.id)){const stopped=await userCancellations.get(event.id);await recordExperience(event,stopped?.running===false&&stopped?.pending===false?'cancelled':'unknown',{reason:'user_stop'});}return false;}if(r.sessionId)await window.petDesktop.asset('markSession',r.sessionId);if(token!==epoch)return false;
   if(r.duplicate){if(chargedAt!==null){const i=memory.calls.indexOf(chargedAt);if(i>=0)memory.calls.splice(i,1);save();}return true;}
@@ -372,15 +692,16 @@ async function modelChanged(event,capture){
  }catch(error){row.status='failed';row.retry='manual';row.error=String(error.message||error).slice(0,200);saveAppearance();status('形象互动未完成：'+error.message+'；可在演出与渲染中重新确认当前形象','error');return false;}
  finally{try{if(row.status==='pending'){row.status='cancelled';row.retry='manual';saveAppearance();}}finally{if(preparingModelChange===event.id)preparingModelChange=false;}}
 }
-async function send(text){if(cancelPending)await cancelPending;if(hostStopping){await checkStopped();if(hostStopping)return;}if(window.liveAI===false){status('AI 调用已关闭');return;}text=text.trim().slice(0,2000);if(!text)return;if(busy||preparingModelChange){status('请等待或停止当前回复');return;}H.activate();voiceEpoch++;el('speechAudio').pause();hideBubble();const event={type:'chat',text,id:crypto.randomUUID(),at:new Date().toISOString()};message('user',text,{eventId:event.id,eventType:'chat',userTyped:true});el('chatText').value='';await decide(event);}
+async function send(text){if(cancelPending)await cancelPending;if(hostStopping){await checkStopped();if(hostStopping)return;}if(window.liveAI===false){status('AI 调用已关闭');return;}text=text.trim().slice(0,2000);if(!text)return;if(busy||preparingModelChange){status('请等待或停止当前回复');return;}H.activate();voiceEpoch++;cancelSpeechStream();el('speechAudio').pause();hideBubble();const event={type:'chat',text,id:crypto.randomUUID(),at:new Date().toISOString()};message('user',text,{eventId:event.id,eventType:'chat',userTyped:true});el('chatText').value='';await decide(event);}
 el('chatPanel').querySelector('h2').textContent='对话记录';
 el('chatForm').onsubmit=e=>{e.preventDefault();send(el('chatText').value)};el('chatText').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&e.keyCode!==229){e.preventDefault();send(el('chatText').value)}};
 el('tryDecision').onclick=()=>decide({type:'observe',note:'用户手动请求一次自主表演'});
 async function checkStopped(){try{const result=await window.petDesktop?.asset?.('sessionState');hostStopping=result?.running!==false||result?.pending!==false;status(hostStopping?'DSH 仍在结束中，尚未确认停止':'DSH 已停止，可继续发送',hostStopping?'warning':undefined);return result;}catch(e){hostStopping=true;status('取消状态未确认：'+e.message,'warning');return null;}}
 function stop(){
- if(activeVoiceRequest)void reportVoice({requestId:activeVoiceRequest,stage:'cancelled'});preparingModelChange=false;const pending=generationPending;generationPending=null;
+ const wasSpeaking=speechBusy||!speechClock().paused;
+ if(activeVoiceRequest)void reportVoice({requestId:activeVoiceRequest,stage:'cancelled'});activeVoiceRequest=null;preparingModelChange=false;const pending=generationPending;generationPending=null;
  if(pending&&!cancelPending){hostStopping=true;cancelPending=(async()=>{try{const result=await window.petDesktop?.asset?.('sessionCancel',pending);if(Number.isSafeInteger(result?.cursor)){memory.cancelledThrough={...(memory.cancelledThrough||{}),[pending.sessionId]:Math.max(memory.cancelledThrough?.[pending.sessionId]||0,result.cursor)};save();}hostStopping=result?.running!==false||result?.pending!==false;status(hostStopping?'本地已停止；DSH 仍在结束中':'DSH 已停止，临时演出已清理',hostStopping?'warning':undefined);return result;}catch(e){hostStopping=true;status('本地已停止；DSH 取消未确认：'+e.message,'warning');return null;}})();userCancellations.set(pending.eventId,cancelPending);while(userCancellations.size>256)userCancellations.delete(userCancellations.keys().next().value);void cancelPending.finally(()=>{cancelPending=null;});}
- epoch++;voiceEpoch++;controller?.abort();controller=null;busy=false;finishPerformance(true);layer.clear();preview=null;el('speechAudio').pause();lipValues={};resetTouches();bubble('');if(!pending&&!cancelPending&&!hostStopping)status('已停止回复、朗读与临时动作');
+ epoch++;voiceEpoch++;cancelSpeechStream();if(wasSpeaking)el('voiceStatus').textContent='朗读已停止';controller?.abort();controller=null;busy=false;finishPerformance(true);layer.clear();preview=null;el('speechAudio').pause();lipValues={};resetTouches();bubble('');if(!pending&&!cancelPending&&!hostStopping)status('已停止回复、朗读与临时动作');
  if(!pending&&hostStopping&&!cancelPending)return checkStopped();return cancelPending||Promise.resolve({running:false,pending:false});
 }
 el('cancelReply').onclick=stop;
@@ -388,7 +709,7 @@ el('clearChat').onclick=async()=>{if(!window.confirm('重置当前角色的记�
 el('popChat').remove();
 function closeChat(){el('galForm').hidden=true;el('chatPanel').hidden=true;chatIndicator();}
 function openChat(){
- if(document.documentElement.classList.contains('pet-only')){el('galForm').hidden=!el('galForm').hidden;if(!el('galForm').hidden)el('galText').focus();}
+ if(document.documentElement.classList.contains('pet-only')){el('galForm').hidden=!el('galForm').hidden;if(!el('galForm').hidden){window.studioPositionChat?.();el('galText').focus({preventScroll:true});}}
  else {el('chatPanel').hidden=false;renderHistory();}
  chatIndicator();
 }
@@ -421,7 +742,7 @@ async function flushTouches(){
  clearTimeout(touchTimer);touchTimer=null;if(touchFlushing)return;if(!touchAllowed()){resetTouches();return;}if(!pendingTouches.length)return;
  touchFlushing=true;const queueEpoch=touchQueueEpoch;try{
  const batch=pendingTouches[0];if(Date.now()-batch.queuedAt>60000){pendingTouches.shift();await recordExperience(batch,'skipped',{reason:'expired'});status('等待超过一分钟的触摸事件已跳过','warning');}
- else if(!busy&&!preparingModelChange&&!el('speechAudio').paused){/* finish current speech before another turn */}
+ else if(!busy&&!preparingModelChange&&!speechClock().paused){/* finish current speech before another turn */}
  else if(!busy&&!preparingModelChange){
   pendingTouches.shift();let error;const {queuedAt,...event}=batch;
   await decide(event,true,{onFailure:e=>{error=e;}});
@@ -431,28 +752,89 @@ async function flushTouches(){
 }
 // Stop queued physical input as soon as editing, adaptation or the AI master switch changes.
 setInterval(()=>{if(!touchAllowed()&&(pendingTouches.length||touchBatch.pending||touchBatch.active))resetTouches();},100);
-setInterval(()=>{if(cancelPending||hostStopping||window.liveAI===false||window.petAppearancePending||!el('petBubble').hidden||window.petAdapting||window.petChangingMemory||window.zoneEditor?.editing||!H.ready||busy||preparingModelChange||document.hidden||!config.auto||!el('speechAudio').paused||H.manual||visualPerformance&&!visualPerformance.done||H.character.busy(performance.now()/1000))return;if(performance.now()>=nextDue){nextDue=performance.now()+config.interval*1000;decide({type:'observe',note:'主动与用户互动一次：结合当前状态与经历，用自然简短的台词回应，并自主安排本模型可用的动作或表情'},true)}},1000);
+setInterval(()=>{if(cancelPending||hostStopping||window.liveAI===false||window.petAppearancePending||!el('petBubble').hidden||window.petAdapting||window.petChangingMemory||window.zoneEditor?.editing||!H.ready||busy||preparingModelChange||document.hidden||!config.auto||!speechClock().paused||H.manual||visualPerformance&&!visualPerformance.done||H.character.busy(performance.now()/1000))return;if(performance.now()>=nextDue){nextDue=performance.now()+config.interval*1000;decide({type:'observe',automatic:true,note:'主动与用户互动一次：结合当前状态与经历，用自然简短的台词回应，并自主安排本模型可用的动作或表情'},true)}},1000);
 // Local voice contract accepts real audio and optional measured/aligned viseme frames.
 function fileBase64(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(file)})}
-el('referenceFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;if(f.size>8*1024*1024){el('voiceStatus').textContent='参考音频超过 8MB';return;}reference={name:f.name,mime:f.type,base64:await fileBase64(f)};el('voiceStatus').textContent='参考音频已载入内存；仅在调用本地合成时发送。'};
-el('clearReference').onclick=()=>{reference=null;el('referenceFile').value='';el('voiceStatus').textContent='已清除参考音频'};
-function setAudio(blob,visemes=[],duration=null){const a=el('speechAudio');a.pause();if(audioURL)URL.revokeObjectURL(audioURL);audioURL=URL.createObjectURL(blob);a.src=audioURL;a.lcDuration=duration;audioPCM=null;applyPlayback();frames=visemes;lipValues={};el('voiceStatus').textContent=frames.length?'音频和嘴型时间轴已载入':'音频已载入；播放时使用实际音频频谱近似口型。';}
+let referenceListEpoch=0;
+async function refreshVoiceReferences(){
+ const revision=++referenceListEpoch;
+ try{
+  const names=await window.petDesktop?.asset?.('voiceReferences');
+  if(!window.document||revision!==referenceListEpoch)return;
+  const field=el('voiceReferenceChoice');
+  const pendingName=restoringReference?.revision===referenceLoad?restoringReference.name:'';
+  const selected=field.value||reference?.storedName||pendingName;
+  const available=Array.isArray(names)?names:[];
+  syncVoiceOptions(field,[['','请选择参考音频'],...available.map(name=>[name,name]),[uploadReference,'从文件选择…']],selected);
+  if(Array.isArray(names)&&selected&&selected!==uploadReference&&!available.includes(selected)){
+   referenceLoad++;reference=null;
+   if(savedReference?.storedName===selected)savedReference=null;
+   el('referenceText').value='';resetReferenceRecognition();
+   el('voiceStatus').textContent='原选参考音频已移除，请重新选择。';
+  }
+ }catch(error){el('voiceStatus').textContent=error.message;}
+}
+el('refreshVoiceReferences').onclick=refreshVoiceReferences;
+el('openVoiceReferences').onclick=()=>window.petDesktop?.asset('openFolder','voice-references');
+el('voiceReferenceChoice').onchange=async()=>{
+ const name=el('voiceReferenceChoice').value;
+ const revision=++referenceLoad;
+ cancelReferenceRecognition();
+ if(name===uploadReference){
+  el('voiceReferenceChoice').value=reference?.storedName||'';
+  if(window.petDesktop?.asset)referenceReading=revision;
+  resetReferenceRecognition();
+  if(!window.petDesktop?.asset){el('referenceFile').click();return;}
+  try{
+   const audio=await window.petDesktop.asset('pickVoiceReference');
+   if(audio&&revision===referenceLoad){reference=audio;el('voiceReferenceChoice').value='';el('referenceText').value='';syncLocalVoiceFields();updateVoiceActions();void recognizeReference();}
+  }catch(error){if(revision===referenceLoad)el('voiceStatus').textContent=error.message;}
+  finally{finishReferenceRead(revision);}
+  return;
+ }
+ if(name)referenceReading=revision;
+ reference=null;el('referenceFile').value='';el('referenceText').value='';syncLocalVoiceFields();updateVoiceActions();
+ if(!name){resetReferenceRecognition();return;}
+ try{
+  const audio=await window.petDesktop.asset('readVoiceReference',name);
+  if(revision!==referenceLoad)return;
+  el('voiceStatus').textContent='已选择参考音频 '+name;
+  reference={...audio,storedName:name};syncLocalVoiceFields();updateVoiceActions();void recognizeReference();
+ }catch(error){if(revision===referenceLoad){resetReferenceRecognition();el('voiceStatus').textContent=error.message;}}
+ finally{finishReferenceRead(revision);}
+};
+el('referenceFile').onchange=async e=>{
+ const file=e.target.files[0],revision=++referenceLoad;
+ resetReferenceRecognition();
+ if(!file)return;
+ if(file.size>8*1024*1024){el('voiceStatus').textContent='参考音频超过 8MB';return;}
+ referenceReading=revision;updateVoiceActions();
+ try{
+  const base64=await fileBase64(file);if(revision!==referenceLoad)return;
+  reference={name:file.name,mime:file.type,base64};el('voiceReferenceChoice').value='';el('referenceText').value='';
+  syncLocalVoiceFields();updateVoiceActions();el('voiceStatus').textContent='参考音频已载入内存。';void recognizeReference();
+ }catch(error){if(revision===referenceLoad)el('voiceStatus').textContent=error.message;}
+ finally{finishReferenceRead(revision);}
+};
+el('clearReference').onclick=()=>{referenceLoad++;reference=null;el('voiceReferenceChoice').value='';el('referenceFile').value='';el('referenceText').value='';el('voiceStyle').value='normal';resetReferenceRecognition();el('voiceStatus').textContent='已清除参考音频';};
+let voiceMedia=null;
+function setAudio(blob,visemes=[],duration=null){const a=el('speechAudio');a.pause();voiceMedia=null;activeVoiceRequest=null;if(audioURL)URL.revokeObjectURL(audioURL);audioURL=URL.createObjectURL(blob);a.src=audioURL;a.lcDuration=duration;audioPCM=null;applyPlayback();frames=visemes;lipValues={};el('voiceStatus').textContent=frames.length?'音频和嘴型时间轴已载入':'音频已载入；播放时使用实际音频频谱近似口型。';}
 
 let activeVoiceRequest=null;
-function voiceContext(){return {provider:config.voiceMode==='api'?config.voiceProvider:'local',endpoint:config.voiceMode==='api'?config.voiceApiUrl:config.tts,model:config.voiceApiModel,voice:config.voice,network:config.voiceNetwork||'direct'};}
+function voiceContext(){return {provider:config.voiceMode==='api'?config.voiceProvider:'local',endpoint:config.voiceMode==='api'?config.voiceApiUrl:config.voiceMode==='breeze'?config.breezeEndpoint:['breeze-managed','managed'].includes(config.voiceMode)?'':config.tts,model:config.voiceMode==='api'?config.voiceApiModel:config.voiceMode==='managed'?config.managedVoiceModel:config.voiceMode?.startsWith('breeze')?'breeze-tts-2':'',voice:config.voice,network:config.voiceNetwork||'direct'};}
 async function reportVoice(value){try{await window.petDesktop?.asset?.('voiceReport',{...voiceContext(),...value});await refreshVoiceDiagnostic();}catch{}}
 function voiceErrorText(error){return [new Date(error.at).toLocaleString(),error.provider+' · '+error.stage+' · '+(error.network==='system'?'系统代理':'直连'),error.httpStatus?'HTTP '+error.httpStatus:'',error.upstreamCode||error.errorCode||'',error.errorType||'',error.causeCode||'',error.keySource?'密钥来源：'+(error.keySource==='candidate'?'本次输入':'已保存的密钥'):'',error.keyLength!==null&&error.keyLength!==undefined?'密钥长度：'+error.keyLength+' · 前缀：'+(error.keyPrefix||'未知'):'',error.message,error.keyFingerprint?'密钥指纹 '+error.keyFingerprint:'',error.keySavedAt?'密钥保存于 '+new Date(error.keySavedAt).toLocaleString():''].filter(Boolean).join('\n');}
-async function refreshVoiceDiagnostic(progress=false){
+async function refreshVoiceDiagnostic(progress=false,isCurrent=()=>true){
  const generation=++voiceDiagnosticEpoch;try{const snapshot=await window.petDesktop?.asset?.('voiceStatus');if(!snapshot||generation!==voiceDiagnosticEpoch)return;
  const failure=snapshot.lastError;updateVoiceActions();el('voiceErrorPanel').hidden=!failure;if(failure)el('voiceLastError').textContent=voiceErrorText(failure);else el('voiceLastError').textContent='';
- if(progress&&snapshot.status)el('voiceStatus').textContent=snapshot.status.message;
+ if(progress&&isCurrent()&&snapshot.status)el('voiceStatus').textContent=snapshot.status.message;
  }catch{}
 }
 el('clearVoiceError').onclick=async()=>{try{await window.petDesktop?.asset?.('voiceClearError');await refreshVoiceDiagnostic();}catch{}};
 void refreshVoiceDiagnostic();
 function voiceMuted(){return playback.muted||playback.volume<=0;}
-function applyPlayback(){const a=el('speechAudio');a.volume=playback.volume;a.muted=voiceMuted();el('petVolume').value=Math.round(playback.volume*100);el('petVolumeValue').textContent=Math.round(playback.volume*100)+'%';el('petMute').setAttribute('aria-pressed',String(voiceMuted()));el('petMute').textContent=voiceMuted()?'取消静音':'静音';el('volumePet').setAttribute('aria-pressed',String(voiceMuted()));el('volumePet').title=voiceMuted()?'已静音 · 语音调用暂停':'语音音量 '+Math.round(playback.volume*100)+'%';updateVoiceActions();}
-async function changePlayback(next){const revision=++playbackRevision;playback={...playback,...next};applyPlayback();if(voiceMuted()){voiceEpoch++;finishPerformance(true,true);el('speechAudio').pause();lipValues={};if(pendingSpeechText){safeBubble(pendingSpeechText);pendingSpeechText='';}if(bubbleMedia){bubbleMedia=null;bubbleShownAt=performance.now();bubbleExplicitTTL=undefined;timeBubble();}}
+function applyPlayback(){const a=el('speechAudio');a.volume=playback.volume;a.muted=voiceMuted();if(streamPlayback)streamPlayback.gain.gain.value=voiceMuted()?0:playback.volume;el('petVolume').value=Math.round(playback.volume*100);el('petVolumeValue').textContent=Math.round(playback.volume*100)+'%';el('petMute').setAttribute('aria-pressed',String(voiceMuted()));el('petMute').textContent=voiceMuted()?'取消静音':'静音';el('volumePet').setAttribute('aria-pressed',String(voiceMuted()));el('volumePet').title=voiceMuted()?'已静音 · 语音调用暂停':'语音音量 '+Math.round(playback.volume*100)+'%';updateVoiceActions();}
+async function changePlayback(next){const revision=++playbackRevision;playback={...playback,...next};applyPlayback();if(voiceMuted()){voiceEpoch++;cancelSpeechStream();finishPerformance(true,true);el('speechAudio').pause();lipValues={};if(pendingSpeechText){safeBubble(pendingSpeechText);pendingSpeechText='';}if(bubbleMedia){bubbleMedia=null;bubbleShownAt=performance.now();bubbleExplicitTTL=undefined;timeBubble();}}
  try{const saved=await window.petDesktop?.asset?.('voicePlayback',playback);if(saved&&revision===playbackRevision){playback=saved;applyPlayback();}}catch(error){el('voiceStatus').textContent='音量保存失败：'+error.message;}}
 el('volumePet').onclick=()=>{el('volumePopover').hidden=!el('volumePopover').hidden;el('volumePet').setAttribute('aria-expanded',String(!el('volumePopover').hidden));};
 el('petVolume').oninput=()=>changePlayback({volume:+el('petVolume').value/100,muted:false});el('petMute').onclick=()=>changePlayback({muted:!voiceMuted(),volume:playback.volume||.8});
@@ -463,32 +845,237 @@ async function analyzeAudio(data){
  const Context=window.AudioContext||window.webkitAudioContext;if(!Context)return null;
  let context;try{context=new Context();const decoded=await Promise.race([context.decodeAudioData(data.buffer.slice(data.byteOffset,data.byteOffset+data.byteLength)),new Promise((_,reject)=>setTimeout(()=>reject(Error('音频分析解码超时')),4000))]);const source=decoded.getChannelData(0);return {data:Float32Array.from(source),sampleRate:decoded.sampleRate};}catch(error){el('lipAnalysisStatus').textContent='音频分析不可用：'+error.message;return null;}finally{context?.close().catch(()=>{});}
 }
+function speechClock(){return streamPlayback?.clock||el('speechAudio');}
+function voiceStopError(){return Object.assign(new DOMException('朗读已停止','AbortError'),{voiceCancelled:true});}
+function voiceInterrupted(error){return !!error.voiceCancelled||error.code==='ai_disabled';}
+function voiceFailureMessage(error){
+ if(error.code==='read_timeout'||error.name==='TimeoutError')return '语音服务等待超时';
+ if(error.name==='AbortError'||/signal is aborted without reason/i.test(error.message))return '语音连接意外中断';
+ return error.message;
+}
+function cancelSpeechStream(){
+ const task=voiceRequest;
+ if(task){
+  task.controller.abort(voiceStopError());
+  if(task.cloudId)void Promise.resolve(window.petDesktop?.asset?.('voiceCancel',{clientRequestId:task.cloudId})).catch(()=>{});
+ }
+ const active=streamPlayback;
+ if(!active)return;
+ streamPlayback=null;
+ active.gain.gain.value=0;
+ active.abort.abort(voiceStopError());
+ finishPerformance(true,true);
+ if(bubbleMedia===active.clock)finishSpeechBubble();
+ lipValues={};
+}
+async function openVoiceStream(body,signal,onRequest){
+ if(body.mode!=='api')return postResponse('/api/synthesize-stream',body,signal);
+ if(!window.petDesktop?.asset)throw Error('需要桌面角色安全读取已保存的 API Key');
+ const clientRequestId=crypto.randomUUID();
+ const open=await Promise.resolve().then(()=>{
+  if(signal.aborted)throw voiceStopError();
+  const pending=window.petDesktop.asset('voiceStreamOpen',{...body,clientRequestId});
+  signal.addEventListener('abort',()=>{
+   void Promise.resolve(window.petDesktop.asset('voiceCancel',{clientRequestId})).catch(()=>{});
+  },{once:true});
+  return pending;
+ });
+ if(signal.aborted||open.cancelled)throw voiceStopError();
+ onRequest?.(open.requestId);
+ return {ok:true,headers:new Map([
+  ['X-Sample-Rate',open.sampleRate],['X-Sample-Format',open.format],['X-Channels',open.channels]
+ ]),body:{getReader(){return {
+  async read(){
+   const {bytes,done,cancelled}=await window.petDesktop.asset('voiceStreamRead',{clientRequestId});
+   if(cancelled)throw voiceStopError();
+   return {value:bytes?new Uint8Array(bytes):undefined,done};
+  },
+  async cancel(){if(!signal.aborted)await window.petDesktop.asset('voiceCancel',{clientRequestId});},
+  releaseLock(){}
+ };}}};
+}
+async function playSpeechStream(body,isCurrent,onStart,onRequest){
+ const Context=window.AudioContext||window.webkitAudioContext;
+ if(!Context)throw Error('当前环境不支持流式语音播放');
+ el('speechAudio').pause();
+ const context=new Context(),abort=new AbortController();
+ const analyser=context.createAnalyser(),gain=context.createGain();
+ analyser.fftSize=1024;
+ analyser.connect(gain);gain.connect(context.destination);gain.gain.value=playback.volume;
+ const samples=new Float32Array(analyser.fftSize),spectrum=new Float32Array(analyser.frequencyBinCount);
+ let start=null,end=0,played=0,total=0,ended=false,scheduled=[],tail=new Uint8Array(0),reader;
+ const clock={
+  get currentTime(){
+   const now=context.currentTime;
+   while(scheduled.length&&now>=scheduled[0].end){played=scheduled.shift().through;}
+   const next=scheduled[0];
+   return next?played+Math.max(0,now-next.begin):played;
+  },
+  get duration(){return total;},
+  get paused(){return start===null||abort.signal.aborted;},
+  get ended(){return ended;}
+ };
+ const stream={clock,abort,gain,mouth(){
+  analyser.getFloatTimeDomainData(samples);
+  analyser.getFloatFrequencyData(spectrum);
+  return LCSpeech.estimate(samples,spectrum,context.sampleRate,analyser.fftSize);
+ }};
+ streamPlayback=stream;
+ const ensurePlaying=()=>{if(abort.signal.aborted||!isCurrent())throw voiceStopError();};
+ const wait=(promise)=>new Promise((resolve,reject)=>{
+  const interrupted=()=>reject(voiceStopError());
+  abort.signal.addEventListener('abort',interrupted,{once:true});
+  promise.then(value=>{abort.signal.removeEventListener('abort',interrupted);resolve(value);},
+   error=>{abort.signal.removeEventListener('abort',interrupted);reject(error);});
+  if(abort.signal.aborted)interrupted();
+ });
+ let drained=Promise.resolve();
+ try{
+  await wait(context.resume());ensurePlaying();
+  const response=await openVoiceStream(body,abort.signal,onRequest);
+  if(!response.ok){const data=await response.json();throw responseError(data,'流式语音连接失败');}
+  if(body.mode==='breeze'&&response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()==='audio/wav'){
+   const data=new Uint8Array(await response.arrayBuffer());ensurePlaying();
+   if(!LCSpeech.duration(data))throw Error('语音服务返回的 WAV 音频无效');
+   return data;
+  }
+  const rate=Number(response.headers.get('X-Sample-Rate'));
+  if(!response.body||!Number.isInteger(rate)||rate<8000||rate>96000||
+   response.headers.get('X-Sample-Format')!=='s16le'||response.headers.get('X-Channels')!=='1')throw Error('流式语音格式无效');
+  reader=response.body.getReader();
+  function enqueue(bytes){
+   const data=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+   const buffer=context.createBuffer(1,bytes.length/2,rate),channel=buffer.getChannelData(0);
+   for(let i=0;i<channel.length;i++)channel[i]=data.getInt16(i*2,true)/32768;
+   const source=context.createBufferSource();
+   source.buffer=buffer;source.connect(analyser);
+   const now=context.currentTime;
+   const begin=end>now?end:now+.055;
+   end=begin+buffer.duration;total+=buffer.duration;
+   scheduled.push({begin,end,through:total});void clock.currentTime;
+   drained=new Promise(resolve=>{source.onended=()=>{source.disconnect();resolve();};});
+   source.start(begin);
+   if(start===null){start=begin;onStart(clock);}
+   else extendPerformance();
+  }
+  while(true){
+   const {done,value}=await reader.read();ensurePlaying();
+   if(done)break;
+   const bytes=new Uint8Array(tail.length+value.length);
+   bytes.set(tail);bytes.set(value,tail.length);
+   const size=bytes.length-bytes.length%2;
+   if(size>=rate*.08){
+    enqueue(bytes.subarray(0,size));tail=bytes.slice(size);
+   }else tail=bytes;
+   if(end-context.currentTime>3){
+    await wait(new Promise(resolve=>setTimeout(resolve,250)));
+    ensurePlaying();
+   }
+  }
+  if(tail.length%2)throw Error('流式语音样本不完整');
+  if(tail.length)enqueue(tail);
+  if(start===null)throw Error('流式语音没有返回音频');
+  await wait(drained);ensurePlaying();
+  ended=true;
+  visualPerformance?.end(performance.now()/1000,clock.currentTime);
+  if(bubbleMedia===clock)finishSpeechBubble();
+ }finally{
+  if(reader){void reader.cancel().catch(()=>{});reader.releaseLock();}
+  if(streamPlayback===stream)streamPlayback=null;
+  void context.close().catch(()=>{});
+ }
+}
 async function speak(text,token=epoch,options={}){
+ if(voiceInstallLocked)return false;
  const show=(media=null)=>{const warning=safeBubble(text,undefined,media);if(warning)options.warnings?.push(warning);};
  if(voiceMuted()){options.onStart?.();if(options.present)show();el('voiceStatus').textContent='已静音，未发起语音调用';return false;}
  if(speechBusy){el('voiceStatus').textContent='语音正在生成，请稍后再试；未重复提交';options.onStart?.();if(options.present)show();return false;}
- const voiceToken=++voiceEpoch;speechBusy=true;let stage='request',requestId=null,started=false;const poll=setInterval(()=>{void refreshVoiceDiagnostic(true);},350);
+ const breeze=config.voiceMode==='breeze'||config.voiceMode==='breeze-managed'||config.voiceMode==='managed'&&config.managedVoiceModel==='breeze-bf16';
+ const selectedReference=config.voiceStyle==='clone'?savedReference:null;
+ if(breeze&&config.voiceStyle==='clone'&&!selectedReference){el('voiceStatus').textContent='克隆音色需要先选择一段参考音频。';options.onStart?.();if(options.present)show();return false;}
+ if(breeze&&selectedReference&&!config.referenceText.trim()){
+  el('voiceStatus').textContent='参考音频 '+selectedReference.name+' 缺少准确文字稿。填写后保存，或清除参考并按音色描述试播。';
+  options.onStart?.();if(options.present)show();return false;
+ }
+ const managed=['managed','breeze-managed'].includes(config.voiceMode);
+ cancelSpeechStream();
+ const voiceToken=++voiceEpoch,task={controller:new AbortController(),cloudId:null};voiceRequest=task;speechBusy=true;let stage='request',requestId=null,started=false;
+ const poll=setInterval(()=>{void refreshVoiceDiagnostic(true,()=>!managed&&voiceToken===voiceEpoch&&stage==='request');},350);
+ const slow=managed?setTimeout(()=>{
+  if(voiceToken===voiceEpoch&&stage==='request')el('voiceStatus').textContent='仍在等待本地模型返回音频，首次加载可能较慢。'+(breeze?'可在「模型位置」里的 breeze-managed/worker.log 查看进度。':'');
+ },20000):null;
  try{
   if(options.present){hideBubble();pendingSpeechText=text;}if(window.liveAI===false){await reportVoice({stage:'key',errorCode:'ai_disabled'});throw Error('AI 调用已关闭');}
-  const direction=options.instruction||config.breezeInstruction;
-  const body=config.voiceMode==='api'?{mode:'api',...voiceContext(),text,instruction:direction,guidance:config.voiceGuidance}:config.voiceMode==='breeze'?{mode:'breeze',endpoint:config.breezeEndpoint,text,instruction:direction,reference,reference_text:config.referenceText}:{endpoint:config.tts,text,voice:config.voice,reference,reference_text:config.referenceText};
-  el('voiceStatus').textContent='正在读取已保存密钥并请求语音服务…';
-  let r;if(config.voiceMode==='api'){if(!window.petDesktop?.asset)throw Error('需要桌面角色安全读取已保存的 API Key');r=await window.petDesktop.asset('voiceSynthesize',body);requestId=r.requestId;}else{const state=await window.petDesktop?.asset?.('voiceStartLocal',voiceContext());requestId=state?.requestId;r=await post('/api/synthesize',body,controller?.signal);}
+  const delivery=options.instruction||'自然、清晰地朗读，语速适中。';const direction=breeze&&!selectedReference?[config.breezeInstruction,delivery].filter(Boolean).join('。'):delivery;
+  const body=config.voiceMode==='api'?{mode:'api',...voiceContext(),text,instruction:direction,guidance:config.voiceGuidance}:['breeze','breeze-managed','managed'].includes(config.voiceMode)?{mode:config.voiceMode,...(config.voiceMode==='managed'?{model:config.managedVoiceModel}:{}),...(config.voiceMode==='breeze'?{endpoint:config.breezeEndpoint}:{}),text,instruction:direction,reference:config.voiceMode==='managed'&&!breeze?null:selectedReference,reference_text:!selectedReference?'':config.referenceText}:{endpoint:config.tts,text,voice:config.voice,reference:selectedReference,reference_text:config.referenceText};
+  el('voiceStatus').textContent=managed?'正在加载本地模型或生成语音…':config.voiceMode==='api'?'正在请求云端语音服务…':'正在请求本地语音合成…';
+  const capability=voiceCapabilities(config.voiceMode,body.model,body.provider);
+  if(capability.cudaGraph)body.cudaGraph=config.voiceCudaGraph===true;
+  if(['managed','breeze-managed'].includes(config.voiceMode)&&voiceCapabilities('managed',config.managedVoiceModel||'breeze-bf16').cudaGraph)body.idleVramOptimization=config.idleVramOptimization===true;
+  let wholeAudio=null,r;
+  const serviceEndpoint=body.mode==='breeze'?body.endpoint?.trim():'';
+  const streaming=!!capability.streaming&&config.voiceStreaming===true&&
+   (body.mode!=='breeze'||!!serviceEndpoint&&!wholeVoiceServices.has(serviceEndpoint));
+  const localDiagnostic={...voiceContext(),streaming,cudaGraph:body.cudaGraph===true};
+  if(streaming){
+   if(body.mode!=='api'){const state=await window.petDesktop?.asset?.('voiceStartLocal',localDiagnostic);requestId=state?.requestId;}
+   const current=()=>token===epoch&&voiceToken===voiceEpoch&&!voiceMuted();
+   if(!current())throw voiceStopError();
+   const streamResult=await new Promise((resolve,reject)=>{
+    playSpeechStream(body,current,clock=>{
+     stage='play';started=true;activeVoiceRequest=requestId;
+     options.onStart?.({media:true,audioElapsed:clock.currentTime,audioDuration:clock.duration});
+     if(options.present)show(clock);
+     el('voiceStatus').textContent='正在流式播放 · 实际音频频谱近似口型';
+     void reportVoice({requestId,stage:'playing'});
+     resolve(true);
+    },id=>{requestId=id;}).then(data=>{
+     if(data){resolve(data);return;}
+     if(current()){activeVoiceRequest=null;el('voiceStatus').textContent='朗读已完成';}
+    },error=>{
+     if(!started){reject(error);return;}
+     if(voiceInterrupted(error)||!current()){if(current()){finishPerformance(true,true);finishSpeechBubble();activeVoiceRequest=null;el('voiceStatus').textContent='朗读已停止';}void reportVoice({requestId,stage:'cancelled'});return;}
+     if(current()){
+      finishPerformance(true,true);finishSpeechBubble();
+      activeVoiceRequest=null;el('voiceStatus').textContent='流式朗读未完成：'+voiceFailureMessage(error);
+      if(body.mode!=='api')void reportVoice({requestId,stage:'request',errorCode:error.code==='read_timeout'?'read_timeout':'synthesis_failed',errorType:error.name});
+     }
+    });
+   });
+   if(streamResult===true)return true;
+   wholeAudio=streamResult;
+   rememberWholeVoiceService(serviceEndpoint);
+  }
+  if(wholeAudio)r={audio:{mime:'audio/wav'}};
+  else if(config.voiceMode==='api'){if(!window.petDesktop?.asset)throw Error('需要桌面角色安全读取已保存的 API Key');task.cloudId=crypto.randomUUID();r=await window.petDesktop.asset('voiceSynthesize',{...body,clientRequestId:task.cloudId});requestId=r.requestId;}else{const state=await window.petDesktop?.asset?.('voiceStartLocal',localDiagnostic);requestId=state?.requestId;r=await post('/api/synthesize',body,task.controller.signal);}
+  if(r.cancelled||token!==epoch||voiceToken!==voiceEpoch||voiceMuted()){await reportVoice({requestId,stage:'cancelled'});if(options.present&&token===epoch&&voiceMuted()&&bubbleText!==text)show();return false;}
+  stage='audio';const data=wholeAudio||Uint8Array.from(atob(r.audio.base64),x=>x.charCodeAt(0)),vf=r.visemes?C.timeline(r.visemes):[];setAudio(new Blob([data],{type:r.audio.mime}),vf,LCSpeech.duration(data));
   activeVoiceRequest=requestId;
-  if(token!==epoch||voiceToken!==voiceEpoch||voiceMuted()){await reportVoice({requestId,stage:'cancelled'});if(options.present&&token===epoch&&voiceMuted()&&bubbleText!==text)show();return false;}
-  stage='audio';const data=Uint8Array.from(atob(r.audio.base64),x=>x.charCodeAt(0)),vf=r.visemes?C.timeline(r.visemes):[];setAudio(new Blob([data],{type:r.audio.mime}),vf,LCSpeech.duration(data));
   const analyzed=await analyzeAudio(data);if(token!==epoch||voiceToken!==voiceEpoch||voiceMuted())return false;audioPCM=analyzed;
   stage='play';await reportVoice({requestId,stage});await el('speechAudio').play();
   if(token!==epoch||voiceToken!==voiceEpoch||voiceMuted()){el('speechAudio').pause();await reportVoice({requestId,stage:'cancelled'});return false;}
-  started=true;options.onStart?.({media:true,audioElapsed:el('speechAudio').currentTime||0,audioDuration:Number.isFinite(el('speechAudio').duration)&&el('speechAudio').duration>0?el('speechAudio').duration:el('speechAudio').lcDuration});if(options.present)show(el('speechAudio'));
-  await reportVoice({requestId,stage:'playing'});el('voiceStatus').textContent='正在播放 · '+(vf.length?'使用返回的口型时间轴':'实际音频频谱近似口型');return true;
+  started=true;voiceMedia={token:voiceToken,url:audioURL};options.onStart?.({media:true,audioElapsed:el('speechAudio').currentTime||0,audioDuration:Number.isFinite(el('speechAudio').duration)&&el('speechAudio').duration>0?el('speechAudio').duration:el('speechAudio').lcDuration});if(options.present)show(el('speechAudio'));
+  const a=el('speechAudio');
+  if(a.ended){voiceMedia=null;activeVoiceRequest=null;el('voiceStatus').textContent='朗读已完成';}
+  else el('voiceStatus').textContent='正在播放 · '+(vf.length?'使用返回的口型时间轴':'实际音频频谱近似口型');
+  await reportVoice({requestId,stage:'playing'});return true;
  }catch(error){
+  if(task.controller.signal.aborted||voiceInterrupted(error)||token!==epoch||voiceToken!==voiceEpoch||voiceMuted()){
+   if(requestId)await reportVoice({requestId,stage:'cancelled'});
+   if(voiceInterrupted(error)&&token===epoch&&voiceToken===voiceEpoch&&options.present&&window.liveAI!==false){options.onStart?.();show();}
+   return false;
+  }
+  if(requestId&&stage==='request')await reportVoice({requestId,stage,errorCode:error.code==='read_timeout'?'read_timeout':'synthesis_failed',errorType:error.name});
   if(stage==='play')await reportVoice({requestId,stage,errorCode:error.name==='NotAllowedError'?'play_blocked':'play_failed',errorType:error.name});else if(requestId&&stage==='audio')await reportVoice({requestId,stage,errorCode:'invalid_audio',errorType:error.name});
-  if(token===epoch&&voiceToken===voiceEpoch){if(options.present){if(!started)options.onStart?.();show();}el('voiceStatus').textContent='朗读未完成（'+stage+'）：'+error.message;}
+  if(token===epoch&&voiceToken===voiceEpoch){voiceMedia=null;activeVoiceRequest=null;if(options.present){if(!started)options.onStart?.();show();}el('voiceStatus').textContent='朗读未完成（'+stage+'）：'+voiceFailureMessage(error);}
   await refreshVoiceDiagnostic();return false;
- }finally{pendingSpeechText='';clearInterval(poll);speechBusy=false;updateVoiceActions();}
+ }finally{if(voiceRequest===task)voiceRequest=null;pendingSpeechText='';clearInterval(poll);clearTimeout(slow);speechBusy=false;updateVoiceActions();}
 }
-el('speechAudio').addEventListener('ended',()=>{const a=el('speechAudio');visualPerformance?.end(performance.now()/1000,a.currentTime>0?a.currentTime:Number.isFinite(a.duration)?a.duration:a.lcDuration);finishSpeechBubble();});
+el('speechAudio').addEventListener('ended',()=>{
+ const a=el('speechAudio');if(!a.ended)return;
+ visualPerformance?.end(performance.now()/1000,a.currentTime>0?a.currentTime:Number.isFinite(a.duration)?a.duration:a.lcDuration);finishSpeechBubble();
+ if(voiceMedia?.token===voiceEpoch&&voiceMedia.url===a.src){voiceMedia=null;activeVoiceRequest=null;el('voiceStatus').textContent='朗读已完成';}
+});
 for(const event of ['loadedmetadata','durationchange','timeupdate'])el('speechAudio').addEventListener(event,extendPerformance);
 el('speechAudio').addEventListener('pause',()=>{if(!el('speechAudio').ended)finishPerformance(true,true);});
 el('speechAudio').addEventListener('error',()=>{finishPerformance(true,true);if(bubbleMedia){bubbleMedia=null;bubbleShownAt=performance.now();bubbleExplicitTTL=undefined;timeBubble();}});
@@ -497,9 +1084,9 @@ async function runVoiceAction(action){
  const nodes=[...el('voicePanel').querySelectorAll('input,select,textarea,button')],disabled=nodes.map(e=>e.disabled);nodes.forEach(e=>e.disabled=true);
  try{return await action();}finally{voiceActionBusy=false;nodes.forEach((e,i)=>e.disabled=disabled[i]);updateVoiceActions();}
 }
-el('voiceTest').onclick=()=>{if(!voiceTrialAllowed()){el('voiceStatus').textContent='请先保存当前设置并填写音色';return false;}return runVoiceAction(()=>speak('Live Character试播启动中'));};
+el('voiceTest').onclick=()=>{if(!voiceTrialAllowed()){el('voiceStatus').textContent=window.liveAI===false?'AI 总开关已关闭。开启后才能试播。':selectedVoiceMode()==='managed'?'请先选择模型并确认环境就绪。':'请先保存当前设置并填写音色';return false;}return runVoiceAction(async()=>{return speak('你好，这是我的声音。很高兴与你见面。',epoch,{instruction:'自然清晰地朗读，语速适中，语气平静。'});});};
 el('speakLast').onclick=()=>{if(!voiceTrialAllowed()){el('voiceStatus').textContent='请先保存当前语音设置并填写音色';return false;}return runVoiceAction(()=>lastText?speak(lastText,epoch,{instruction:lastSpeech}):el('voiceStatus').textContent='还没有可朗读的回复');};
-el('testAudio').onchange=async e=>{const f=e.target.files[0];if(f&&f.size<=16*1024*1024){const token=++voiceEpoch,data=new Uint8Array(await f.arrayBuffer()),analyzed=await analyzeAudio(data);if(token!==voiceEpoch)return;setAudio(f,[],LCSpeech.duration(data));audioPCM=analyzed;}else el('voiceStatus').textContent='音频超过 16MB';};
+el('testAudio').onchange=async e=>{const f=e.target.files[0];if(f&&f.size<=16*1024*1024){cancelSpeechStream();const token=++voiceEpoch,data=new Uint8Array(await f.arrayBuffer()),analyzed=await analyzeAudio(data);if(token!==voiceEpoch)return;setAudio(f,[],LCSpeech.duration(data));audioPCM=analyzed;}else el('voiceStatus').textContent='音频超过 16MB';};
 el('visemeFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;if(f.size>16*1024*1024)throw Error('时间轴文件过大');frames=C.timeline(JSON.parse(await f.text()));el('voiceStatus').textContent='嘴型时间轴已载入：'+frames.length+' 帧；以当前音频时间同步';}catch(err){el('voiceStatus').textContent=err.message}};
 for(const v of [...C.vowels,'silence']){const b=document.createElement('button');b.textContent='预览 '+v;b.onclick=()=>{preview={v,until:performance.now()/1000+2};};el('vowelPreview').append(b)}
 function livingPose(now,base){
@@ -515,10 +1102,14 @@ function livingPose(now,base){
  }
  return out;
 }
-function frame(now,base){base=livingPose(now,base);if(H.manual)layer.clear();let out=layer.frame(now,base);if(!H.focused&&gaze&&now<gaze.until)for(const row of H.catalog.controlRig||[]){
+let stateRig;
+function frame(now,base){base=livingPose(now,base);layer.bindCharacter(H.character);
+ if(stateRig!==H.catalog.controlRig){stateRig=H.catalog.controlRig;const allowed=new Set((stateRig||[]).filter(r=>r.lifetime==='state').map(r=>r.id));for(const id of layer.states.keys())if(!allowed.has(id)){layer.states.delete(id);delete layer.current[id];}}
+ if(H.manual)layer.clear();let out=layer.frame(now,base);if(!H.focused&&gaze&&now<gaze.until)for(const row of H.catalog.controlRig||[]){
   if(!row.role.startsWith('视线'))continue;const v=row.role==='视线横向'?gaze.x:gaze.y;out[row.id]=row.neutral+v*(v<0?row.neutral-row.min:row.max-row.neutral);
- }const audio=el('speechAudio'),speech=!audio.paused&&!audio.ended&&!voiceMuted();let weights=null;
+ }const audio=speechClock(),speech=!audio.paused&&!audio.ended&&!voiceMuted();let weights=null;
  if(preview&&now<preview.until){weights={A:0,I:0,U:0,E:0,O:0,silence:0};weights[preview.v]=1;}
+ else if(speech&&streamPlayback)weights=streamPlayback.mouth();
  else if(speech&&frames.length)weights=C.sample(frames,Math.max(0,audio.currentTime+(+el('lipOffset').value||0)));
  else if(speech&&audioPCM)weights=LCSpeech.sampleAudio(audioPCM,Math.max(0,audio.currentTime+(+el('lipOffset').value||0)));
  const dt=Math.min(.1,Math.max(0,now-lastLip));lastLip=now;
@@ -530,7 +1121,7 @@ function frame(now,base){base=livingPose(now,base);if(H.manual)layer.clear();let
  if(!audio.paused&&!audio.ended)for(const id of ['TongueOut','ParamTongueOut','MouthRollUpper','MouthRollLower'])if(H.params?.ids.includes(id))out[id]=H.params.defaultValues[H.params.ids.indexOf(id)];
  return {...out,...lipValues};}
 let gaze=null;
-window.companion={clearStatus:clearFeedback,bubble,setPlayback:changePlayback,bubblePresentation(){return {id:bubbleSerial,visibleCount:bubbleVisible}},refreshVoice(){if(performance.now()-lastVoiceRefresh>2000){lastVoiceRefresh=performance.now();return refreshVoiceKey();}},
+window.companion={refreshVoiceActions:updateVoiceActions,disableVoice(){if(voiceRequest||streamPlayback||voiceMedia)stop();},clearStatus:clearFeedback,bubble,setPlayback:changePlayback,bubblePresentation(){return {id:bubbleSerial,visibleCount:bubbleVisible}},refreshVoice(){if(performance.now()-lastVoiceRefresh>2000){lastVoiceRefresh=performance.now();return refreshVoiceKey();}},
  externalState(){return {online:true,characterId:window.petCharacterId,profile:H.catalog?.profile,model:H.catalog?.model||'',emotion:memory.emotion,activity:memory.activity,focus:el('focusMode').value,busy};},
  perform(cmd){
   if(!H.ready)throw Error('MODEL_NOT_READY');if(window.petAdapting||window.zoneEditor?.editing)throw Error('CHARACTER_LOCKED');
@@ -573,7 +1164,7 @@ window.companion={clearStatus:clearFeedback,bubble,setPlayback:changePlayback,bu
   rows.sort((a,b)=>(Date.parse(a.at)||0)-(Date.parse(b.at)||0));
   return {rows:rows.slice(-limit),total:rows.length+(remote.more?1:0)};
  },
- capabilities,publishConfiguration,modelChanged,flushMemory:save,exportMemory(){return {state:JSON.parse(JSON.stringify(memory)),history:archive('history'),...(appearance.current?{appearance:JSON.parse(JSON.stringify(appearance))}:{})};},
+ capabilities,publishConfiguration,modelChanged,resetParameterStates(){layer.states.clear();},flushMemory:save,exportMemory(){return {state:JSON.parse(JSON.stringify(memory)),history:archive('history'),...(appearance.current?{appearance:JSON.parse(JSON.stringify(appearance))}:{})};},
  importMemory(bundle){if(bundle.appearance?.current?.characterId===window.petCharacterId){appearance=JSON.parse(JSON.stringify(bundle.appearance));saveAppearance();}memory={...bundle.state,history:bundle.history.slice(-16)};archive('replaceHistory',bundle.history);save();renderHistory();},
  chatState(){return {last:memory.history.at(-1)?.at||'',busy:busy||!!preparingModelChange||!!cancelPending||hostStopping,status:el('galStatus').textContent};},
  sendFromPanel(text){
@@ -581,6 +1172,7 @@ window.companion={clearStatus:clearFeedback,bubble,setPlayback:changePlayback,bu
   if(busy||preparingModelChange||cancelPending||hostStopping)throw Error('角色正在回复或 DSH 正在停止');
   if(!H.ready||window.zoneEditor?.editing)throw Error('请先加载角色并退出区域编辑');
   void send(text).catch(e=>status(e.message,'error'));
- },applySettings(values){Object.assign(config,values);config.touchDebounceMs=Number.isInteger(config.touchDebounceMs)&&config.touchDebounceMs>=50&&config.touchDebounceMs<=5000?config.touchDebounceMs:250;touchBatch.setDelay(config.touchDebounceMs);if(!config.touchAI)resetTouches();fill();el('mouseButtons').value=config.swapButtons?'swap':'normal';save();schedule();},frame,advance:advancePerformance,touch,beginTouch,endTouch,resetTouches,stop,decide,schedule,get swapButtons(){return config.swapButtons},openChat,closeChat,stroke,get performing(){return performance.now()/1000<Math.max(layer.until,layer.holdUntil)},get config(){return config},get lastReply(){return lastReply}};
+ },applySettings(values){Object.assign(config,values);config.touchDebounceMs=Number.isInteger(config.touchDebounceMs)&&config.touchDebounceMs>=50&&config.touchDebounceMs<=5000?config.touchDebounceMs:250;touchBatch.setDelay(config.touchDebounceMs);if(!config.touchAI)resetTouches();fill();el('mouseButtons').value=config.swapButtons?'swap':'normal';save();schedule();},frame,advance:advancePerformance,touch,beginTouch,endTouch,resetTouches,stop,decide,schedule,get swapButtons(){return config.swapButtons},openChat,closeChat,stroke,get performing(){return !!(visualPerformance&&!visualPerformance.done)||performance.now()/1000<Math.max(layer.until,layer.holdUntil)},get config(){return config},get lastReply(){return lastReply}};
 window.addEventListener('beforeunload',()=>{if(audioURL)URL.revokeObjectURL(audioURL)});
 })();
+

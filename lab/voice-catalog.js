@@ -8,5 +8,22 @@
   auk:{name:'AuK-Flash · 本地适配器',models:['AuK-Flash'],kind:'local',unavailable:true,help:'官方提供本地 CLI／推理接口，未接入统一官方云 API。请通过通用本地模型服务连接已配置的 AuK 适配器。'},
   openai:{name:'自定义 · OpenAI 兼容协议',endpoint:'',models:[],voice:'alloy',voiceLabel:'服务商音色名称 / ID',voicePlaceholder:'填写该服务实际支持的音色',keyLabel:'服务商 API Key',help:'仅用于服务商明确支持的 /audio/speech 协议；填写最终 HTTPS 合成地址、模型和音色。不会把 Breeze、Fish 或百炼强行按此格式调用。'}
  };
- window.LCVoiceCatalog=catalog;
+ // Capabilities describe the adapter LC actually uses with the selected model.
+ const whole=Object.freeze({streaming:false,cudaGraph:false});
+ const streaming=Object.freeze({streaming:true,cudaGraph:false});
+ const managedBreeze=Object.freeze({streaming:true,cudaGraph:true});
+ function capabilities(mode,model,provider){
+  if(mode==='api')return ['breeze','fish','qwen'].includes(provider)&&catalog[provider].models.includes(model)?streaming:whole;
+  if(mode==='breeze')return streaming;
+  if(mode==='breeze-managed')return !model||model==='breeze-bf16'?managedBreeze:whole;
+  if(mode!=='managed')return whole;
+  if(model==='breeze-bf16')return managedBreeze;
+  if(/^piper-[a-f0-9]{64}$/.test(model))return streaming;
+  return whole;
+ }
+ if(typeof module==='object'&&module.exports)module.exports={catalog,capabilities};
+ if(typeof window!=='undefined'){
+  window.LCVoiceCatalog=catalog;
+  window.LCVoiceCapabilities=capabilities;
+ }
 })();

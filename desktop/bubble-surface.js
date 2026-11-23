@@ -6,7 +6,7 @@
   current=p;reveal(p.visibleCount);bubble.style.setProperty('--paper',p.paper);bubble.style.color=p.ink;
   const measure=(width,font,compact)=>{bubble.style.maxWidth=width+'px';bubble.style.fontSize=font+'px';bubble.style.whiteSpace=compact?'normal':'pre-wrap';const r=bubble.getBoundingClientRect();return {width:r.width,height:r.height};};
   const fit=window.LiveBubble?.fit||(({font,maxWidth,maxHeight,measure})=>{let size=font,r=measure(maxWidth,size,false);while(r.height>maxHeight&&size>9)r=measure(maxWidth,--size,false);if(r.height>maxHeight)r=measure(maxWidth,size,true);return {width:Math.ceil(r.width),height:Math.ceil(r.height)};});
-  const box=fit({text:p.text,font:p.font,maxWidth:p.maxWidth-24,maxHeight:p.maxHeight-24,measure});
+  const box=fit({text:p.text,characterWidth:p.characterWidth,font:p.font,maxWidth:p.maxWidth-24,maxHeight:p.maxHeight-24,measure});
   window.bubbleSurface.measured({revision:p.revision,width:box.width+24,height:box.height+24});
  });
  window.bubbleSurface.onProgress?.(p=>{if(current&&p.id===current.id)reveal(p.visibleCount)});

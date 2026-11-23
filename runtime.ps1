@@ -1,5 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# Hosts launched from PowerShell 7 can pass incompatible built-in modules to Windows PowerShell.
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules') + [IO.Path]::PathSeparator + $env:PSModulePath
 $root = Join-Path $env:LOCALAPPDATA 'LiveCharacter'
 [void][IO.Directory]::CreateDirectory($root)
 $mutex = New-Object Threading.Mutex($false,'Local\LiveCharacterRuntime05')
@@ -14,37 +16,13 @@ try {
   $application=Ensure-ApplicationRelease $root $PSScriptRoot $codeManifest
   if($application.repaired){$script:depInstalled=$true}
   $release=$application.path
+  & (Join-Path $root 'python-3.13.9/python.exe') -I -B (Join-Path $release 'desktop/brand-runtime.py') (Join-Path $root 'electron-45.2.3')
+  if ($LASTEXITCODE -ne 0) {throw '无法准备 Live Character 桌面程序，请重试运行环境检查。'}
 
-  # Retire only unmodified generated files from known versions. Leave custom files and running releases alone.
+  try {Save-ApplicationReceipt $root $codeManifest} catch {Add-DependencyEvent 'application' 'receipt-deferred' $_.Exception.Message}
   try {
-    $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.Name -match '^(electron|python)(w)?\.exe$' })
-    $catalog = Get-Content (Join-Path $PSScriptRoot 'desktop/release-files.json') -Raw | ConvertFrom-Json
-    foreach ($version in $catalog.PSObject.Properties) {
-      $old = Join-Path $root $version.Name
-      if (!(Test-Path -LiteralPath $old) -or ($processes | Where-Object { !$_.CommandLine -or $_.CommandLine.IndexOf($old,[StringComparison]::OrdinalIgnoreCase) -ge 0 })) {continue}
-      if ((Get-Item -LiteralPath $old).Attributes -band [IO.FileAttributes]::ReparsePoint) {continue}
-      foreach ($record in $version.Value.PSObject.Properties) {
-        $file = Join-Path $old $record.Name
-        $cursor = $file
-        $safe = $true
-        while ($cursor -ne $old) {
-          if (!(Test-Path -LiteralPath $cursor) -or ((Get-Item -LiteralPath $cursor).Attributes -band [IO.FileAttributes]::ReparsePoint)) {$safe=$false;break}
-          $cursor = Split-Path $cursor -Parent
-        }
-        if ($safe -and (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -eq $record.Value) {[IO.File]::Delete($file)}
-      }
-      $labDir = Join-Path $old 'lab'
-      $cache = Join-Path $labDir '__pycache__'
-      if ((Test-Path -LiteralPath $cache) -and !((Get-Item -LiteralPath $labDir).Attributes -band [IO.FileAttributes]::ReparsePoint) -and !((Get-Item -LiteralPath $cache).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        Get-ChildItem -LiteralPath $cache -File | Where-Object { $_.Name -match '^(server|companion|focus_input)\.cpython-\d+(\.opt-[12])?\.pyc$' -and !($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } | ForEach-Object { [IO.File]::Delete($_.FullName) }
-        if (!(Get-ChildItem -LiteralPath $cache -Force)) {[IO.Directory]::Delete($cache)}
-      }
-      foreach ($sub in @('lab/vendor','lab','desktop','')) {
-        $dir=if ($sub) {Join-Path $old $sub} else {$old}
-        if ((Test-Path -LiteralPath $dir) -and !((Get-Item -LiteralPath $dir).Attributes -band [IO.FileAttributes]::ReparsePoint) -and !(Get-ChildItem -LiteralPath $dir -Force)) {[IO.Directory]::Delete($dir)}
-      }
-    }
-  } catch { Write-Verbose $_.Exception.Message }
+    Remove-RetiredApplicationReleases $root $codeManifest.version (Join-Path $PSScriptRoot 'desktop/release-files.json')
+  } catch {Add-DependencyEvent 'application' 'cleanup-deferred' $_.Exception.Message}
 
   $message=if($script:depInstalled){'依赖修复完成，运行环境已就绪。请点击“启动角色”。'}else{'运行依赖检查通过，正在启动角色…'}
   Write-DependencyStatus 'ready' $message

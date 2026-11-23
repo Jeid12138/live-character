@@ -63,7 +63,8 @@
  function mappedTargets(weights,catalog,params,rows){const inputs=source(weights),out={},blocked=new Set(catalog.physicsIO?.Output||[]);for(const r of rows){const i=params.ids.indexOf(r.id),x=inputs[r.input];if(!r.enabled||i<0||blocked.has(r.id)||!Number.isFinite(x))continue;let value;if(r.mode==='centered')value=x<0?r.neutral+(r.outputMin-r.neutral)*clamp(x/r.inputMin):r.neutral+(r.outputMax-r.neutral)*clamp(x/r.inputMax);else value=r.outputMin+(r.outputMax-r.outputMin)*clamp((x-r.inputMin)/(r.inputMax-r.inputMin));out[r.id]=clamp(value,params.minimumValues[i],params.maximumValues[i]);}return out;}
  function instruction({direction='',emotion='',persona='',event='',baseline=''}={}){
   const clean=x=>String(x||'').replace(/[\x00-\x1f]/g,' ').trim();
-  return [clean(direction)||('以自然口语表达此刻的'+clean(emotion||'情绪')+'；意图是回应'+clean(event||'当前互动')+'。结合角色性格：'+clean(persona).slice(0,160)+'。按语意停顿并强调关键词，情感清晰但不要夸张。'),clean(baseline)].filter(Boolean).join('\n').slice(0,1000);
+  const card=clean(persona).trim().slice(0,160);
+  return [clean(direction)||('以自然口语表达此刻的'+clean(emotion||'情绪')+'；意图是回应'+clean(event||'当前互动')+'。'+(card?'结合角色性格：'+card+'。':'')+'按语意停顿并强调关键词，情感清晰但不要夸张。'),clean(baseline)].filter(Boolean).join('\n').slice(0,1000);
  }
  const api={duration,pcm,sampleAudio,estimate,source,targets,detectMappings,validateMappings,mappedTargets,instruction};if(typeof module!=='undefined')module.exports=api;else root.LCSpeech=api;
 })(globalThis);

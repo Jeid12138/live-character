@@ -1,9 +1,13 @@
 {
-  "version": "0.12.36",
+  "version": "1.0.3",
   "files": [
     {
       "path": "desktop/bounds.cjs",
       "sha256": "c5431cb2e3991d492520112a68232a9afe570d2726afaab93ec2a42b0188df3b"
+    },
+    {
+      "path": "desktop/brand-runtime.py",
+      "sha256": "085224d36072308d9266ba251c4757d5c3c1429a9fbcbc932fdeea382c7cc1b6"
     },
     {
       "path": "desktop/bubble-preload.cjs",
@@ -11,11 +15,11 @@
     },
     {
       "path": "desktop/bubble-surface.js",
-      "sha256": "ddeb9bffad96065adffc0a3ddcbf8edddb689d571797a278658991b7ddcc88cb"
+      "sha256": "3f5f6d9a5a8a116f8974b53ba8e31a64fabe6c785b1f93ac587bc3b3190dfafe"
     },
     {
       "path": "desktop/bubble-window.cjs",
-      "sha256": "dca64909133c4b13d6beb8f799e57d49f4f6f7029f3e8ce33e8e5f6fd210eebb"
+      "sha256": "2963a8e825b9452ebe6f71d526fcec66d684d2d0ebac97bc372d4c5f94ee3960"
     },
     {
       "path": "desktop/bubble.css",
@@ -47,11 +51,11 @@
     },
     {
       "path": "desktop/library.cjs",
-      "sha256": "0f18ea1cd304d3b9074c6798523fd2085f1afc31190739e7d1c1f11d743cc027"
+      "sha256": "535252a63aa7b1d75ec8e2789348db2b0f30d07a32602737b6a65e89550c2d86"
     },
     {
       "path": "desktop/main.cjs",
-      "sha256": "d04dc84b69448ece65185f022cea6341d75068ee30a4b7e8da8cd707e3c1bd70"
+      "sha256": "6d442945ec5d1d072d5cc86b32f353297db375ba49b4d175089b8760ded9c118"
     },
     {
       "path": "desktop/model-transition.cjs",
@@ -59,11 +63,11 @@
     },
     {
       "path": "desktop/package.json",
-      "sha256": "f7a6538a4242f69e18054e856a985781f72591c21be8c147cdfcbc4190d2e64d"
+      "sha256": "95ea54ce83a1c9a2aa238b51e9e28f61529afcc2d4606d4704588b13ef87dcc9"
     },
     {
       "path": "desktop/panel.cjs",
-      "sha256": "510c8df226216cb9865664c1c159743ebc1d350ced831ef489dbf86a2dfe3fac"
+      "sha256": "11f54470d72918135bea1768ac828f33f043477d0d8cd0140ff3d77fee89d374"
     },
     {
       "path": "desktop/preload.cjs",
@@ -71,15 +75,19 @@
     },
     {
       "path": "desktop/release-files.json",
-      "sha256": "8b774db9c7c8d449832e5e2b1f10d7a84291b16f25bf185a7237e1d1fc6a98e5"
+      "sha256": "8df67affe77b8f0baabe0a2130fbbb5cfe595112939b2016b3cc98a532bb05fb"
     },
     {
       "path": "desktop/renderer-diagnostics.cjs",
       "sha256": "1704f620c939bf0275be193245b30f1b11399d675c59e4e4536c00b8184e2bd6"
     },
     {
+      "path": "desktop/screen-observation.cjs",
+      "sha256": "c87730ec18854f7b6c6b0bc907aead81dee79e0597e61d8268cfe59f896eea31"
+    },
+    {
       "path": "desktop/voice-diagnostics.cjs",
-      "sha256": "f7626d53bfab02e9eeb69fec8575cb0d6dd906f31ee4b3c05d471802581efcb1"
+      "sha256": "9c5a73754728286098a5f4ee57e238009e95877e3b16e0bc92f3bd55165c678f"
     },
     {
       "path": "desktop/voice-key.cjs",
@@ -87,7 +95,7 @@
     },
     {
       "path": "desktop/voice-request.cjs",
-      "sha256": "d4f4ccd9426def6a05e5d5be1ed17435f84b63c5bf59dcd0e56c47e7970a1b7c"
+      "sha256": "82732c766ce81f77c34e8bcc864abcd9c753f7509280dff87949fe9baa4fa2f9"
     },
     {
       "path": "desktop/voice-secrets.cjs",
@@ -95,59 +103,83 @@
     },
     {
       "path": "desktop/voice-settings.cjs",
-      "sha256": "79fc11e0c95fc9d0573ae868d351055a4e01daf4144b9efb7924d5d2e3ee9830"
+      "sha256": "0def02dee6eaa7c8cf1a331edfc94308e3c9b5d08fa2a0ee6254788e4707b2bc"
     },
     {
       "path": "lab/app.js",
-      "sha256": "fdeade40c3cbe95a12e0801f6593143252c8149ebfbbb475ac1be30b11ad62ee"
+      "sha256": "35fa91d070370a47209b6669b59f32fcacedf891e674a9787be5d64514d1adce"
     },
     {
       "path": "lab/body-zones.js",
       "sha256": "3dd9d52ca9d5b767a0e38c914f42dbcb0046959815a728f42d808d6fbe56ef85"
     },
     {
+      "path": "lab/breeze_worker.py",
+      "sha256": "16866caf5e530137fcbca7376e6d1320f387d463cadcf81a6e8e9f441ef21267"
+    },
+    {
       "path": "lab/bubble-layout.js",
-      "sha256": "dfb9e60e9aae9d82f0e52a6dddf12c5d9a8a5a91a8bfa086d491bf1c61694ff5"
+      "sha256": "d8344b40f6395a00dbbb399e372538ae5a968bc3c06de72cc19acbed0cc12f66"
     },
     {
       "path": "lab/companion-core.js",
-      "sha256": "f10e21270998bcf7294e9178969475ffbade15c1cfda597e4aad20ac7ea8ca8a"
+      "sha256": "b441225ba70941436427be89ffa311b6238eec2d9afe25bac81b67b34617973f"
     },
     {
       "path": "lab/companion.css",
-      "sha256": "66df8548463fba1dd1c8b678d1dcb4e4841ea37044e3e9763f20ee0222fb68db"
+      "sha256": "7d2779ff286e1516e043ad531a1f820a75176298aaead261f330a21c65192c03"
     },
     {
       "path": "lab/companion.js",
-      "sha256": "6225cc13ed6fbf3f772edd530efcf6466a7957b0af924c3b080e20a7f0d0583f"
+      "sha256": "fe90a5347545ba7b93da43d97ad9d3ab7eb0cd11cf717c6090c2a3452f3049bc"
     },
     {
       "path": "lab/companion.py",
-      "sha256": "5fd3d22961391b1bce587113ed0e3f9441c8f46b619ac39229d6221478a0d813"
+      "sha256": "332756b3566300b9823d23dcde7b7a0ea24c7dde4f60017ecc6d176b524b9773"
     },
     {
       "path": "lab/focus_input.py",
       "sha256": "c4926da43c90160f32a5781d95424c0e2e66cbc9abae093cb68628c35d859162"
     },
     {
+      "path": "lab/help.js",
+      "sha256": "fc546ed4e71307fb18785d8a4c0ffa0fbcaeec6a0e671950de87b91e8fa550cf"
+    },
+    {
       "path": "lab/index.html",
-      "sha256": "3c8ae387a3285bd61a4e9578a6b71ba4d898ddb5c3ff3eab9d3de634b7031b21"
+      "sha256": "b493ea9bb4d7f40e664ddaa472cb97151988a9061d696e627fd842c15300486f"
+    },
+    {
+      "path": "lab/local_voice.py",
+      "sha256": "c648b4502b4e59beccd78fa0a8a45a0695969aa4355a26a1a7ca18fac7984a18"
     },
     {
       "path": "lab/logo.svg",
       "sha256": "c35218d0b0906295bb428d213abb16cba8f5999316547b3c5f730b74d637331e"
     },
     {
+      "path": "lab/managed_voice.py",
+      "sha256": "e43ff56d60b6aa02f262a3612bcbdab702b4c04af80410b5b1b87bec7604b9fa"
+    },
+    {
       "path": "lab/mouth-profile.js",
       "sha256": "16801dad1d5cf155665c933ee84b675c03e1fdca31b82438bb006b89636e9b4c"
     },
     {
+      "path": "lab/package.json",
+      "sha256": "8005a3491db7d92f36ac66369861589f9c47123d3a7c71e643fc2c06168cd45a"
+    },
+    {
       "path": "lab/panel-state.js",
-      "sha256": "83b5ef85fb1ef7fbf4db25c5dd4aa6eaac1bcd118c77111398c67a68340d9908"
+      "sha256": "00f55d69e2f9fa875dbc3f90ab0e1e27239b1bd3fd6ef8a5c003ce08eb0639f5"
+    },
+    {
+      "path": "lab/piper_stream.py",
+      "sha256": "68972df0bc1cef4ce1768325c42be049498ea736c33044b4c8910fd99c1dfaeb"
     },
     {
       "path": "lab/portable.js",
-      "sha256": "dad4733ca7e67c410bb15084fea0d1dacaf06c4881cff7e7d11a902cb54b9744"
+      "sha256": "59ad7edfd0372f702d96fe6dc9095b761aecddf3a458ad52dbd63ae1d87bad0d"
     },
     {
       "path": "lab/renderer-health.js",
@@ -159,11 +191,11 @@
     },
     {
       "path": "lab/server.py",
-      "sha256": "e240711032b284b5a525953b49d987a20ff982582db646d5ba02e5d60cd7e563"
+      "sha256": "e1d2a138cc1a0986646878aa62d9298ba33225d872e225ce57e31a4fb9f8098a"
     },
     {
       "path": "lab/speech-core.js",
-      "sha256": "be6b8506d41b2b364cd8ff137d06a462e353cb9e3a60c8d13a6ed060c513d368"
+      "sha256": "b54e034576cf7ce7f5ced528abd2f28f9a386aeeb189a831cbaf927600574347"
     },
     {
       "path": "lab/state.js",
@@ -171,7 +203,7 @@
     },
     {
       "path": "lab/studio.js",
-      "sha256": "dd6c8b0e1f1c5b4e9f35e24917fbc3a2113d42a333b23cfe189fa927bd23b5c5"
+      "sha256": "bbe0a130298b45ff87bed4036446293e0ee227322a2d30d85f96b80b4997e2eb"
     },
     {
       "path": "lab/style.css",
@@ -183,7 +215,7 @@
     },
     {
       "path": "lab/tts_api.py",
-      "sha256": "149418a12ab74ff766c2631cb5f51456a143a9d9cf0432c2867f2e8273be0925"
+      "sha256": "1aa69fd81d1090e8c437a288ea2541daef72250c3f1d02df6f6563f50958e123"
     },
     {
       "path": "lab/vendor/cubism4.js",
@@ -195,7 +227,7 @@
     },
     {
       "path": "lab/voice-catalog.js",
-      "sha256": "64062ede73cdb1fbd9636fc3c805fed59c28446ba13a56e74cbfc11703020577"
+      "sha256": "1355388516182f6e46e7493a098caf5a0b814cfc4e3aed5e9ddb2ddfa30ee377"
     },
     {
       "path": "lab/zones-core.js",
@@ -203,7 +235,7 @@
     },
     {
       "path": "lab/zones-editor.js",
-      "sha256": "28b4d15e34e32b7e0ca15c3d6eb62cce14dcab0575d37755a03b99118a6a60bb"
+      "sha256": "6a8338162bb5864b62d11a650fb4ae8fc75e92c99aef3642f4f3061890a99d7e"
     }
   ]
 }

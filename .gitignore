@@ -8,6 +8,8 @@ runtime-payloads/*.zip
 Thumbs.db
 desktop.ini
 *.log
+__pycache__/
+*.pyc
 
 # 依赖安装生成的锁文件（源码仓库按需保留）
 package-lock.json

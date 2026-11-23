@@ -1,5 +1,18 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const makeVault=require('../desktop/voice-secrets.cjs'),makeDiag=require('../desktop/voice-diagnostics.cjs'),makeSettings=require('../desktop/voice-settings.cjs'),makeLibrary=require('../desktop/library.cjs');
+test('local inference failures retain the selected decoder and stream mode across restarts',()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lc-decoder-status-'));
+ try{
+  const diag=makeDiag(dir);
+  const {requestId}=diag.begin({provider:'local',model:'breeze-bf16',cudaGraph:true,streaming:false});
+  diag.report({requestId,stage:'request',errorCode:'read_timeout'});
+  const error=makeDiag(dir).snapshot().lastError;
+  assert.equal(error.errorCode,'read_timeout');
+  assert.equal(error.cudaGraph,true);
+  assert.equal(error.streaming,false);
+  assert.equal(diag.begin({provider:'local'}).cudaGraph,null);
+ }finally{fs.rmSync(dir,{recursive:true,force:true})}
+});
 const safe={isEncryptionAvailable:()=>true,getSelectedStorageBackend:()=> 'dpapi',encryptString:s=>Buffer.from(s.split('').reverse().join('')),decryptString:b=>b.toString().split('').reverse().join('')};
 async function fixture(){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lc-voice-settings-')),assets={characters:[],active:null},library=makeLibrary(dir,assets,()=>{});library.setup();
@@ -20,10 +33,33 @@ test('offline save accepts opaque keys and never calls authentication even when 
   const stored=JSON.parse(f.library.store('get','companion-config-v4'));assert.equal(stored.otherField,'preserved');assert.equal(stored.persona,'保留原人格');assert.equal(stored.voice,'voc_new');assert(!JSON.stringify(result).includes('key_opaque_fixture+new='));
  }finally{f.close()}
 });
+test('native saves keep supported streaming opt-in and clear stale acceleration settings',async()=>{
+ const f=await fixture();try{
+  const fields=makeSettings.fields;
+  assert.equal(fields(f.settings).voiceStreaming,false);
+  for(const voiceMode of ['api','local','breeze']){
+   const settings=fields({...f.settings,voiceMode,voiceStreaming:true,voiceCudaGraph:true});
+   assert.equal(settings.voiceStreaming,voiceMode==='breeze'||voiceMode==='api');
+   assert.equal(settings.voiceCudaGraph,false);
+  }
+  const settings=fields({...f.settings,voiceProvider:'openai',voiceApiUrl:'https://voice.example/v1/audio/speech',voiceStreaming:true});
+  assert.equal(settings.voiceStreaming,false);
+ }finally{f.close()}
+});
 test('transport-invalid candidates cannot overwrite key or role settings',async()=>{
  const f=await fixture();try{
   const beforeKey=fs.readFileSync(f.keyFile),beforeConfig=fs.readFileSync(f.configFile);
   await assert.rejects(f.save({settings:f.settings,key:'bad\nkey'}),e=>e.voice.errorCode==='key_format_error');assert.equal(f.calls.length,0);assert(fs.readFileSync(f.keyFile).equals(beforeKey));assert(fs.readFileSync(f.configFile).equals(beforeConfig));assert.equal(f.diag.snapshot().lastError.keySource,'candidate');
+ }finally{f.close()}
+});
+test('cloud settings preserve and explicitly clear a local reference with a Unicode filename',async()=>{
+ const f=await fixture();
+ try{
+  for(const referenceName of ['中文 参考音色.wav','']){
+   await f.save({settings:{...f.settings,referenceName}});
+   const saved=JSON.parse(f.library.store('get','companion-config-v4'));
+   assert.equal(saved.referenceName,referenceName);
+  }
  }finally{f.close()}
 });
 test('draft cloud tests never save a candidate on success or HTTP failure and keep diagnostics redacted',async()=>{

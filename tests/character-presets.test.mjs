@@ -10,3 +10,53 @@ test('two roles, same-role new skin, saved persona and voice updates stay isolat
 test('runtime evidence is injected only during the LC turn, cleaned after completion, and stale/restarted records are rejected',async()=>{const f=fixture();try{const p=payload();p.pluginContext=[{source:'memory',text:'上次摸了头'}];await f.registry.publish(p);const token=f.registry.beginRuntime(p),config={characterId:a,dataDirectory:f.dir};assert(readCharacterRuntime(config).includes('上次摸了头'));const runtimeFile=path.join(f.dir,'asset','_characters',a,'settings','agent-runtime.json'),saved=JSON.parse(fs.readFileSync(runtimeFile));fs.writeFileSync(runtimeFile,JSON.stringify({...saved,pid:-1}));assert.equal(readCharacterRuntime(config),'');fs.writeFileSync(runtimeFile,JSON.stringify(saved));f.registry.endRuntime(token);assert.equal(readCharacterRuntime(config),'');assert(!readCharacterContext(config).includes('上次摸了头'));}finally{f.clean();}});
 test('preset restore, disposal, deletion and unavailable API do not silently use the generic coding preset',async()=>{const f=fixture();try{const c=await f.registry.publish(payload());f.registry.bindSession(session,c.presetId);f.registry.assertSession(session,c.presetId);assert.throws(()=>f.registry.assertSession('session-unknown',c.presetId),e=>e.code==='LC_SESSION_PRESET_REQUIRED');f.registry.dispose();const reloaded=characterPresets(f.ctx,{dataDirectory:f.dir});await reloaded.restore();reloaded.assertSession(session,c.presetId);await reloaded.remove(a);assert(!f.definitions.has(c.presetId));assert.throws(()=>reloaded.assertSession(session,c.presetId));reloaded.dispose();const absent=characterPresets({get:()=>({})},{dataDirectory:f.dir});await assert.rejects(absent.publish(payload()),/register/);absent.dispose();}finally{f.clean();}});
 test('real bridge creates the correct preset session and sends only the event while the actor reads full injection',async()=>{const f=fixture();try{let exists=false,request,creation,injected;const sc={events:async()=>{if(!exists)throw Object.assign(Error('missing'),{code:'session/not-found'});return {records:[]};},create:async r=>{creation=r;exists=true;return {sessionId:r.sessionId};},rename:async()=>{},state:async()=>({cursor:0,queue:[]}),prompt:async r=>{request=r;injected=assemble(f.definitions.get(creation.agentPreset)).contexts.map(c=>c.text());},wait:async()=>({reason:'idle',output:{records:[{event:{type:'assistant/message',seq:2,data:{message:{content:[{type:'text',text:'{"text":"你好呀","emotion":"开心","activity":0.5,"duration":4}'}]}}}}]}})};const bridge=sessionBridge({get(name){if(name==='sessionController')return sc;throw Error('no workspace');}},{},{presets:f.registry});const p=payload();p.pluginContext=[{source:'memory',text:'之前的互动'}];const r=await bridge.chat(p,signal,undefined);assert.equal(creation.agentPreset,characterPresetId(a));assert.equal(request.content.length,1);assert(request.content[0].text.includes('lc.event.v3'));assert(!request.content[0].text.includes('lc.context.v1'));assert(injected[0].includes('FishHead'));assert(injected[1].includes('之前的互动'));assert.equal(r.transport.configurationBytes,0);assert.deepEqual(r.transport.userContentKinds,['lc.event.v3']);assert.equal(r.transport.configurationPlacement,'agent-preset.context');assert.equal(r.transport.runtimeBytes,0);assert(r.configurationInjected);assert.equal(readCharacterRuntime({dataDirectory:f.dir,characterId:a}),'');}finally{f.clean();}});
+
+test('each skin retains its own most recently assembled capabilities',async()=>{
+ const f=fixture();
+ try{
+  for(const [skin,name] of [[profile,'体型1'],['b'.repeat(24),'喷水']]){
+   f.assets.active.profile=skin;f.writeAssets();
+   const row=payload(a);row.context.profile=skin;row.capabilities={motions:[{name}]};
+   await f.registry.publish(row);readCharacterContext({dataDirectory:f.dir,characterId:a});
+  }
+  for(const [skin,name] of [[profile,'体型1'],['b'.repeat(24),'喷水']]){
+   const file=path.join(f.dir,'asset','_characters',a,'settings','models',skin+'.capabilities.json');
+   const snapshot=JSON.parse(fs.readFileSync(file,'utf8'));
+   assert.deepEqual(snapshot.capabilities.motions,[{name}]);assert.equal(snapshot.profile,skin);
+  }
+ }finally{f.clean();}
+});
+
+test('empty and legacy cards work for LC events and direct DSH continuation',async()=>{
+ const f=fixture();
+ try{
+  const home=path.join(f.dir,'asset','_characters',a),meta=path.join(home,'character.json'),settings=path.join(home,'settings','character.json');
+  let seq=0,assembled='',request,preset;
+  const controller={
+   events:async()=>{if(!preset)throw Object.assign(Error('missing'),{code:'session/not-found'});return {records:[]};},
+   rename:async()=>{},state:async()=>({cursor:seq,queue:[],running:false}),
+   create:async value=>{preset=value.agentPreset;return {sessionId:value.sessionId};},
+   prompt:async value=>{request=value;assembled=assemble(f.definitions.get(preset)).contexts[0].text();seq+=2;return {accepted:true};},
+   wait:async()=>({reason:'idle',output:{records:[{event:{type:'assistant/message',seq,data:{message:{content:[{type:'text',text:'{"text":"还在这儿。","emotion":"平静","activity":0.5,"duration":4}'}]}}}}]}})
+  };
+  const bridge=sessionBridge({get(name){if(name==='sessionController')return controller;throw Error('no workspace');}},{},{presets:f.registry});
+  for(const [type,card] of [['chat',''],['touch',' \t\n'],['observe',undefined],['model_change','']]){
+   fs.writeFileSync(meta,JSON.stringify({persona:card}));
+   const input=payload();
+   input.persona=card;input.event.type=type;
+   if(type==='touch')input.event.touches=[{zone:'头',count:1,durationMs:200}];
+   if(type==='model_change')input.event.reason='initial_import';
+   await bridge.chat(input,signal);
+   assert.match(assembled,/"persona":""/);
+   assert.match(assembled,/FishHead/);
+   assert.match(request.content[0].text,new RegExp('"type":"'+type+'"'));
+  }
+  const nativeContext=assemble(f.definitions.get(preset)).contexts[0];
+  assert.match(assemble(f.definitions.get(preset)).sections[0].text,/性格卡为空时仍正常回应本轮.*自然形成表达方式/);
+  fs.writeFileSync(meta,'{}');
+  fs.writeFileSync(settings,JSON.stringify({'companion-config-v4':JSON.stringify({persona:'既有性格卡'})}));
+  assert.match(nativeContext.text(),/"persona":"既有性格卡"/);
+  fs.writeFileSync(meta,JSON.stringify({persona:'　'}));
+  assert.match(nativeContext.text(),/"persona":""/);
+ }finally{f.clean();}
+});

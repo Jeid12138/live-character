@@ -1,5 +1,13 @@
 # Live Character 0.12.28：语音服务字段与调用协议
 
+## 0.12.43 云端流式播放
+
+开启语音流式播放后，桌面主进程读取已保存的加密凭据，通过本机合成服务连接官方 API。系统代理和直连沿用语音设置。流式输出统一为 24 kHz、16 位小端序、单声道 PCM。关闭流式播放可使用下文的完整音频接口。
+
+- Breeze 的两个已接入模型使用语音 ID 对应的 `/stream?output_format=pcm` 接口，沿用演绎指令和强度。https://docs.breezeblue.ai/api-reference/text-to-speech/stream-text-to-speech
+- Fish 的三个已接入 S2 模型使用 `/v1/tts` 的 PCM 响应和 24000 Hz 采样率，模型继续通过 `model` 请求头选择。https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech
+- Qwen 的 `qwen3-tts-flash` 在已选地域启用 `X-DashScope-SSE`，逐条解码 `output.audio.data`，以 `finish_reason: stop` 确认结束。https://help.aliyun.com/zh/model-studio/qwen-tts-api
+
 核对日期：2026-11-12。本页描述当前实现；付费服务发声仍需用户本机验证，协议测试不等于真实账号验证。
 
 ## 配置流程与界面

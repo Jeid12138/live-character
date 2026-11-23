@@ -1,5 +1,14 @@
 import {randomUUID} from 'node:crypto';
 const validId=id=>typeof id==='string'&&/^[a-f0-9-]{36}$/i.test(id);
+export function preparationExitError(code,status,version,runId){
+ const cancelled=code===2;
+ const phase=cancelled?'cancelled':'failed';
+ const message=status.version===version&&status.runId===runId&&status.phase===phase&&typeof status.message==='string'
+  ?status.message.trim():'';
+ return Object.assign(Error(message||(cancelled
+  ?'依赖安装已取消；自行准备后可重新检测依赖。'
+  :'运行环境准备失败，请检查安装提示或复制诊断。')),{code:cancelled?'CANCELLED':'PREPARE_FAILED'});
+}
 // Construction/querying is inert. Only launch() may begin preparation.
 export function createRuntimeLauncher({prepare,launchCharacter,cancelPreparation,isRunning,writeStatus}){
  let active=null,disposed=false;

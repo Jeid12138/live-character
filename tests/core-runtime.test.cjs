@@ -10,7 +10,8 @@ test('managed Core verifies payload and consent, never trusts assets.json or pat
   assert.throws(()=>managed(data),/缺失或无法校验/);state('wrong');assert.throws(()=>managed(data),/尚未确认/);
   state('test-r5');assert.equal(managed(data),file);fs.writeFileSync(file,'corrupt');assert.throws(()=>managed(data),/损坏或版本/);
   fs.rmSync(file);assert.throws(()=>managed(data),/缺失或无法校验/);
-  const outside=path.join(data,'external.js');fs.writeFileSync(outside,body);fs.symlinkSync(outside,file);assert.throws(()=>managed(data),/不能是链接/);
+  const outside=path.join(data,'external');fs.mkdirSync(outside);fs.writeFileSync(path.join(outside,spec.executable),body);
+  fs.rmdirSync(core);fs.symlinkSync(outside,core,process.platform==='win32'?'junction':'dir');assert.throws(()=>managed(data),/不能是链接/);
  }finally{fs.rmSync(data,{recursive:true,force:true})}
 });
 test('installer and desktop share exactly one pinned official Core reference',()=>{

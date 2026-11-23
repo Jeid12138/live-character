@@ -46,11 +46,13 @@ class Network(unittest.TestCase):
             def opener(*handlers):return original(*handlers,urllib.request.HTTPSHandler(context=trusted))
             env={'HTTPS_PROXY':'http://127.0.0.1:'+str(proxy.server_port),'NO_PROXY':''}
             try:
-                with patch.dict(os.environ,env,clear=True),patch.object(t.urllib.request,'build_opener',side_effect=opener):
+                with patch.dict(os.environ,{**({'SystemRoot':os.environ['SystemRoot']} if 'SystemRoot' in os.environ else {}),**env},clear=True),patch.object(t.urllib.request,'build_opener',side_effect=opener):
                     url='https://localhost:'+str(target.server_port)+'/'
                     self.assertEqual(t.request(url,{'Accept':'application/json'})[0],b'{"ok":true}');self.assertEqual(hits,{'direct':1,'proxy':0})
                     with self.assertRaises(t.TtsError) as raised:t.request(url,{'Accept':'application/json'},network='system')
-                    self.assertEqual(raised.exception.voice_details['errorCode'],'proxy_tls_eof');self.assertEqual(raised.exception.voice_details['errorType'],'SSLEOFError');self.assertTrue(raised.exception.voice_details['proxyUsed']);self.assertEqual(hits,{'direct':1,'proxy':1})
+                    details=raised.exception.voice_details
+                    expected={'SSLEOFError':'proxy_tls_eof','ConnectionAbortedError':'connection_reset','ConnectionResetError':'connection_reset'}
+                    self.assertEqual(details['errorCode'],expected[details['errorType']]);self.assertTrue(raised.exception.voice_details['proxyUsed']);self.assertEqual(hits,{'direct':1,'proxy':1})
             finally:
                 for server in (target,proxy):server.shutdown();server.server_close()
                 for thread in threads:thread.join()

@@ -13,14 +13,17 @@ const tick=()=>new Promise(r=>setImmediate(r));
   setIgnoreMouseEvents(v){this.ignore=v}setAlwaysOnTop(...v){this.tops.push(v)}moveTop(){}isVisible(){return this.visible}isDestroyed(){return false}isMinimized(){return false}
   setBounds(v){this.bounds.push(v)}showInactive(){this.visible=true;this.shows++}hide(){this.visible=false}destroy(){this.destroyed=true}
  }
- const surface=create({BrowserWindow:Window,screen:{getDisplayNearestPoint:()=>({workArea:{x:0,y:0,width:1920,height:1080}})},ipcMain,parent,isEnabled:()=>enabled,isTop:()=>alwaysTop});
+ const surface=create({BrowserWindow:Window,screen:{getDisplayNearestPoint:point=>({workArea:point.x<0?{x:-1280,y:0,width:1280,height:720}:{x:0,y:0,width:1920,height:1080}})},ipcMain,parent,isEnabled:()=>enabled,isTop:()=>alwaysTop});
  const payload={text:'长台词'.repeat(300),font:18,paper:'#fffcf5',ink:'#263945',anchor:{x:180,y:100}};
  surface.update(payload);await tick();const win=windows[0];assert.equal(windows.length,1);assert.equal(win.options.focusable,false);assert.equal(win.options.skipTaskbar,true);assert.equal(win.ignore,true);assert.equal(win.options.webPreferences.nodeIntegration,false);
- let request=win.sent.at(-1)[1];assert.equal(request.text,payload.text);assert.equal(request.maxWidth,1912);
+ let request=win.sent.at(-1)[1];assert.equal(request.text,payload.text);assert.equal(request.maxWidth,342);
  ipcMain.emit('lc-bubble-size',{sender:{}},{revision:request.revision,width:800,height:400});assert.equal(win.shows,0);
- ipcMain.emit('lc-bubble-size',{sender:win.webContents},{revision:request.revision,width:800,height:400});assert.equal(win.shows,1);assert.equal(win.bounds.at(-1).width,800);assert.deepEqual(origin,{x:500,y:200,width:350,height:570});
+ ipcMain.emit('lc-bubble-size',{sender:win.webContents},{revision:request.revision,width:800,height:400});assert.equal(win.shows,1);assert.equal(win.bounds.at(-1).width,350);assert.deepEqual(origin,{x:500,y:200,width:350,height:570});
  surface.update(payload);assert.equal(win.sent.length,1);assert.equal(win.shows,1,'position polling must not repeatedly raise an unpinned bubble');assert.equal(win.bounds.length,1);
  surface.update({...payload,anchor:{x:240,y:200}});assert.equal(win.sent.length,1,'position-only update must not remeasure text');assert.equal(win.shows,1);
+ origin={x:-1250,y:35,width:420,height:200};parent.emit('move');request=win.sent.at(-1)[1];
+ ipcMain.emit('lc-bubble-size',{sender:win.webContents},{revision:request.revision,width:600,height:400});
+ assert.deepEqual(win.bounds.at(-1),{x:-1250,y:35,width:420,height:200});
  alwaysTop=true;surface.top();assert.deepEqual(win.tops.at(-1),[true,'screen-saver']);
  surface.update({...payload,text:'<script>alert(1)</script>'});request=win.sent.at(-1)[1];surface.update({hidden:true});ipcMain.emit('lc-bubble-size',{sender:win.webContents},{revision:request.revision,width:400,height:100});assert.equal(win.visible,false,'late layout must not resurrect a hidden bubble');
  enabled=false;surface.update(payload);assert.equal(win.visible,false);surface.destroy();assert(win.destroyed);assert.equal(ipcMain.listenerCount('lc-bubble-size'),0);enabled=true;surface.update(payload);assert.equal(windows.length,1,'disposed bubble must not create a new window');
